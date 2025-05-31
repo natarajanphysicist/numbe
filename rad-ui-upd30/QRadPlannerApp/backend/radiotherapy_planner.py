@@ -189,7 +189,7 @@ class QRadPlan3D:
 
         if tumor_mask_detected_zyx is not None:
             tumor_mask_planner_oriented_crs = np.transpose(tumor_mask_detected_zyx, (2, 1, 0)).astype(bool) # c,r,s
-            self.set_tumor_data(tumor_mask_input=tumor_mask_planner_oriented_crs) # Expects (c,r,s)
+            self.set_tumor_data(tumor_mask_input_crs=tumor_mask_planner_oriented_crs) # Expects (c,r,s)
         else:
             logger.warning("No tumor mask provided to set_patient_data. Tumor target may be undefined.")
             self.tumor_mask = None 
