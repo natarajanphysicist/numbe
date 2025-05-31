@@ -231,7 +231,10 @@ class DicomViewer2DWidget(QWidget):
                     if len(self.drawing_aid_lines) == 1 and len(self.current_slice_contour_points) == 2:
                          # Check if the first aid line is just a point (no xdata list)
                          if not hasattr(self.drawing_aid_lines[0], 'get_xdata') or len(self.drawing_aid_lines[0].get_xdata()) <= 1:
-                            if self.drawing_aid_lines[0] in self.axes.lines: self.axes.lines.remove(self.drawing_aid_lines[0])
+                            try:
+                                self.drawing_aid_lines[0].remove()
+                            except Exception as e:
+                                logger.debug(f"Error removing single point marker: {e}")
                             self.drawing_aid_lines.clear()
                     
                     xs, ys = zip(*self.current_slice_contour_points)

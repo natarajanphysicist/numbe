@@ -45,8 +45,8 @@ class TumorDetector:
             logger.debug(f"detect_tumors: volume_prepared_for_peaks flags: {volume_prepared_for_peaks.flags}, dtype: {volume_prepared_for_peaks.dtype}")
 
             # 5. Find local maxima
-            min_distance_peaks = 50
-            threshold_abs_peaks = 0.45 # This threshold is on normalized data [0,1]
+            min_distance_peaks = 25
+            threshold_abs_peaks = 0.35 # This threshold is on normalized data [0,1]
             logger.info(f"detect_tumors: Calling peak_local_max with min_distance={min_distance_peaks}, threshold_abs={threshold_abs_peaks}")
 
             coordinates = peak_local_max(volume_prepared_for_peaks, min_distance=min_distance_peaks, threshold_abs=threshold_abs_peaks)
