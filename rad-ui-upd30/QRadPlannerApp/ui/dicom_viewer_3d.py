@@ -85,7 +85,7 @@ class DicomViewer3DWidget(QWidget):
         else: 
             vtk_image.SetSpacing(1.0,1.0,1.0); vtk_image.SetOrigin(0.0,0.0,0.0)
 
-        vtk_array = numpy_support.numpy_to_vtk(num_array=np_array_s_r_c.ravel(order='F'), deep=True, array_type=vtkImageData.GetScalarType())
+        vtk_array = numpy_support.numpy_to_vtk(num_array=np_array_s_r_c.ravel(order='F'), deep=True)
         vtk_image.GetPointData().SetScalars(vtk_array)
         return vtk_image
     
