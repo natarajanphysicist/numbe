@@ -48,6 +48,12 @@ class MainWindow(QMainWindow):
         open_zip_action.setStatusTip("Open a ZIP archive containing DICOM files")
         open_zip_action.triggered.connect(self._open_dicom_zip)
         file_menu.addAction(open_zip_action)
+
+        open_file_action = QAction("Open DICOM File...", self)
+        open_file_action.setStatusTip("Open a single DICOM file (loads the series it belongs to)")
+        open_file_action.triggered.connect(self._open_dicom_file)
+        file_menu.addAction(open_file_action)
+
         file_menu.addSeparator()
         exit_action = QAction("&Exit", self)
         exit_action.setStatusTip("Exit application")
@@ -458,6 +464,35 @@ class MainWindow(QMainWindow):
                 self.status_bar.showMessage(error_msg, 5000); logger.error(error_msg)
                 QMessageBox.critical(self, "Load Error", error_msg)
             self._update_ui_element_states() 
+
+    def _open_dicom_file(self):
+        start_dir = os.path.expanduser("~")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Single DICOM File", start_dir, "DICOM Files (*.dcm);;All Files (*)")
+        if file_path:
+            directory_path = os.path.dirname(file_path)
+            self._clear_planning_and_results()
+            logger.info(f"Selected DICOM file: {file_path}, loading from directory: {directory_path}")
+            self.status_bar.showMessage(f"Loading DICOM series from file's folder: {directory_path}...")
+            QApplication.processEvents()
+            load_success = self.data_manager.load_dicom_from_folder(directory_path)
+            if load_success and self.data_manager.volume_data is not None:
+                patient_name = self.data_manager.patient_metadata.get('PatientName', 'Unknown Patient')
+                num_slices = self.data_manager.volume_data.shape[0]
+                self.slice_slider.setMaximum(num_slices - 1 if num_slices > 0 else 0)
+                self.slice_slider.setValue((num_slices - 1) // 2 if num_slices > 0 else 0)
+                self.wc_input.setText("40"); self.ww_input.setText("400")
+                self._update_displayed_slice()
+                self._update_3d_viewer()
+                status_msg = f"Loaded: {patient_name} - {num_slices} slices from directory of {os.path.basename(file_path)}."
+                self.status_bar.showMessage(status_msg, 5000); logger.info(status_msg)
+            else:
+                self.viewer_2d.clear_view()
+                if hasattr(self, 'viewer_3d'): self.viewer_3d.clear_view()
+                self.slice_slider.setMaximum(0); self.current_slice_label.setText("Slice: N/A")
+                error_msg = f"Failed to load DICOM series from directory of file: {file_path}. Check logs."
+                self.status_bar.showMessage(error_msg, 5000); logger.error(error_msg)
+                QMessageBox.critical(self, "Load Error", error_msg)
+            self._update_ui_element_states()
 
     def _update_3d_viewer(self):
         logger.debug("Attempting to update 3D viewer (volume, tumor, OARs).")

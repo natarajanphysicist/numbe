@@ -15,7 +15,7 @@ from QRadPlannerApp.features.tumor_detector import TumorDetector
 # Ensure QRadPlan3D is correctly pathed if it's not in backend directly
 # from QRadPlannerApp.backend.radiotherapy_planner import QRadPlan3D
 # Assuming radiotherapy_planner.py is in the same directory or appropriately in PYTHONPATH
-from radiotherapy_planner import QRadPlan3D # Adjusted for local testing if radiotherapy_planner.py is in same dir
+from .radiotherapy_planner import QRadPlan3D # Adjusted for local testing if radiotherapy_planner.py is in same dir
 from QRadPlannerApp.utils.plan_eval_utils import (
     calculate_plan_metrics_external,
     generate_dvh_data_external,
