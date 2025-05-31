@@ -183,7 +183,7 @@ class DataManager:
                 self.planner.set_patient_data(
                     ct_volume_hu_zyx=self.volume_data,
                     image_properties=self.image_properties,
-                    tumor_mask_detected=self.tumor_mask, 
+                    tumor_mask_detected_zyx=self.tumor_mask,
                     oar_masks_loaded=self.oar_masks_from_rtstruct 
                 )
                 logger.info("Patient data (CT, image_props, tumor_mask, OARs) set into QRadPlan3D engine.")
