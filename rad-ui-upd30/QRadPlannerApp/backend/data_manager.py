@@ -178,10 +178,10 @@ class DataManager:
             
             if self.volume_data is not None and self.image_properties is not None:
                 # Pass OARs (ZYX from self.oar_masks_from_rtstruct) to set_patient_data
-                # QRadPlan3D.set_patient_data expects ct_volume_hu (s,r,c), tumor_mask_detected (s,r,c),
+                # QRadPlan3D.set_patient_data expects ct_volume_hu_zyx (s,r,c), tumor_mask_detected (s,r,c),
                 # and oar_masks_loaded (Dict[str, np.ndarray (s,r,c)])
                 self.planner.set_patient_data(
-                    ct_volume_hu=self.volume_data, 
+                    ct_volume_hu_zyx=self.volume_data,
                     image_properties=self.image_properties,
                     tumor_mask_detected=self.tumor_mask, 
                     oar_masks_loaded=self.oar_masks_from_rtstruct 

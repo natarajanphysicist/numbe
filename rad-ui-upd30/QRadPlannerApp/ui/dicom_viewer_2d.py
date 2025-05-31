@@ -103,11 +103,11 @@ class DicomViewer2DWidget(QWidget):
 
     def _clear_drawing_aids(self):
         for line_obj in self.drawing_aid_lines:
-            if line_obj in self.axes.lines: 
+            if line_obj in self.axes.lines: # Keep this check as it's good practice
                 try:
-                    self.axes.lines.remove(line_obj)
-                except ValueError: # Already removed
-                    pass 
+                    line_obj.remove() # Changed line
+                except Exception as e: # More general catch, though remove() is usually safe
+                    logger.debug(f"Error removing line_obj {line_obj} using .remove(): {e}")
         self.drawing_aid_lines.clear()
 
     def clear_current_drawing_on_slice(self):
