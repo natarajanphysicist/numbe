@@ -1,0 +1,11 @@
+numpy
+scipy
+matplotlib
+pydicom
+numba
+scikit-image
+plotly
+SimpleITK
+PyQt5
+vtk
+monai[all]
