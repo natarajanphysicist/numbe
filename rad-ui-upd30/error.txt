@@ -1,0 +1,69 @@
+(qradplan-env) thennamalai@thennamalai-annan:~/Documents/tech gramam/cancers/rt-prototype-qc/work-folder/project details/rad-ui-upd30$ python -m QRadPlannerApp.main
+2025-05-30 13:41:46,610 - INFO - QRadPlannerApp - main - run_gui_app - Starting QRadPlanner GUI application...
+Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome. Use QT_QPA_PLATFORM=wayland to run on Wayland anyway.
+2025-05-30 13:41:46,624 - INFO - QRadPlannerApp.backend.data_manager - data_manager - __init__ - DataManager initialized.
+2025-05-30 13:41:46,667 - INFO - QRadPlannerApp.ui.dicom_viewer_2d - dicom_viewer_2d - __init__ - DicomViewer2DWidget initialized with drawing attributes.
+2025-05-30 13:41:46,870 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - __init__ - DicomViewer3DWidget initialized.
+2025-05-30 13:41:46,936 - INFO - QRadPlannerApp.ui.dvh_plot_widget - dvh_plot_widget - clear_plot - DVH plot cleared.
+2025-05-30 13:41:46,936 - INFO - QRadPlannerApp.ui.dvh_plot_widget - dvh_plot_widget - __init__ - DvhPlotWidget initialized.
+2025-05-30 13:41:46,938 - INFO - QRadPlannerApp.ui.main_window - main_window - __init__ - MainWindow initialized.
+2025-05-30 13:41:46,938 - INFO - QRadPlannerApp.ui.dicom_viewer_2d - dicom_viewer_2d - clear_view - Clearing 2D viewer.
+2025-05-30 13:41:46,945 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - clear_view - Clearing 3D viewer (volume, tumor, and dose isosurfaces).
+2025-05-30 13:42:10,921 - INFO - QRadPlannerApp.ui.dvh_plot_widget - dvh_plot_widget - clear_plot - DVH plot cleared.
+2025-05-30 13:42:10,921 - INFO - QRadPlannerApp.ui.main_window - main_window - _open_dicom_folder - Selected DICOM folder: /home/thennamalai/Downloads/Brain CT/files/cancer
+2025-05-30 13:42:10,923 - INFO - QRadPlannerApp.backend.data_manager - data_manager - load_dicom_from_folder - Found 91 DICOM files in /home/thennamalai/Downloads/Brain CT/files/cancer.
+2025-05-30 13:42:11,151 - INFO - QRadPlannerApp.backend.data_manager - data_manager - load_dicom_from_folder - Successfully loaded DICOM data for Patient: N/A
+2025-05-30 13:42:11,151 - INFO - QRadPlannerApp.backend.data_manager - data_manager - load_dicom_from_folder - Volume dimensions: [512, 512, 91], Voxel data shape: (91, 512, 512)
+2025-05-30 13:42:11,151 - INFO - QRadPlannerApp.backend.data_manager - data_manager - load_dicom_from_folder - Image properties: Origin: [-96.3766, -117.9391, -619.0], Spacing: [0.371, 0.371, 2.0]
+2025-05-30 13:42:11,186 - INFO - QRadPlannerApp.backend.data_manager - data_manager - load_dicom_from_folder - SimpleITK image created successfully. Size: (512, 512, 91), Spacing: (0.371, 0.371, 2.0), Origin: (-96.3766, -117.9391, -619.0), Direction: (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+2025-05-30 13:42:11,186 - INFO - QRadPlannerApp.backend.data_manager - data_manager - load_dicom_from_folder - Starting tumor detection...
+2025-05-30 13:42:11,186 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - --- Starting detect_tumors (full pipeline) ---
+2025-05-30 13:42:11,767 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: Calling peak_local_max with min_distance=20, threshold_abs=0.3
+2025-05-30 13:42:12,518 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: peak_local_max call succeeded. Found 30 peaks.
+2025-05-30 13:42:12,643 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: Found 30 distinct peak regions to use as markers for watershed.
+2025-05-30 13:42:40,052 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: Watershed segmentation done. Unique labels count: 30
+2025-05-30 13:42:40,954 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: Found 30 tumor regions after area filtering (>100 voxels).
+2025-05-30 13:42:41,181 - INFO - QRadPlannerApp.backend.data_manager - data_manager - load_dicom_from_folder - Tumor detection completed. Mask shape: (91, 512, 512), Unique values: (array([ True]), array([23855104]))
+2025-05-30 13:42:41,363 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - Updating 3D Viewer (Volume and Tumor Mask)...
+2025-05-30 13:42:41,364 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - Volume data shape: (91, 512, 512), dtype: float32
+2025-05-30 13:42:41,874 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - DICOM volume actor created and added to renderer.
+2025-05-30 13:42:41,875 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - Tumor mask data shape: (91, 512, 512), dtype: bool
+2025-05-30 13:42:42,401 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - Tumor mask actor created and added to renderer.
+2025-05-30 13:42:42,514 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - 3D View updated (Volume and Tumor).
+2025-05-30 13:42:42,515 - INFO - QRadPlannerApp.ui.main_window - main_window - _update_3d_viewer - 3D Viewer updated with new data.
+2025-05-30 13:42:42,515 - INFO - QRadPlannerApp.ui.main_window - main_window - _open_dicom_folder - Loaded: N/A - 91 slices. Volume shape: (91, 512, 512)
+2025-05-30 13:43:03,008 - INFO - QRadPlannerApp.ui.main_window - main_window - _run_tumor_detection - Attempting to run tumor detection...
+2025-05-30 13:43:03,027 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - --- Starting detect_tumors (full pipeline) ---
+2025-05-30 13:43:03,615 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: Calling peak_local_max with min_distance=20, threshold_abs=0.3
+2025-05-30 13:43:04,347 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: peak_local_max call succeeded. Found 30 peaks.
+2025-05-30 13:43:04,459 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: Found 30 distinct peak regions to use as markers for watershed.
+2025-05-30 13:43:32,825 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: Watershed segmentation done. Unique labels count: 30
+2025-05-30 13:43:33,697 - INFO - QRadPlannerApp.features.tumor_detector - tumor_detector - detect_tumors - detect_tumors: Found 30 tumor regions after area filtering (>100 voxels).
+2025-05-30 13:43:33,713 - INFO - QRadPlannerApp.ui.main_window - main_window - _run_tumor_detection - Tumor detection complete. New mask sum: 23855104
+2025-05-30 13:43:37,430 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - Updating 3D Viewer (Volume and Tumor Mask)...
+2025-05-30 13:43:37,434 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - Volume data shape: (91, 512, 512), dtype: float32
+2025-05-30 13:43:37,848 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - DICOM volume actor created and added to renderer.
+2025-05-30 13:43:37,849 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - Tumor mask data shape: (91, 512, 512), dtype: bool
+2025-05-30 13:43:38,370 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - Tumor mask actor created and added to renderer.
+2025-05-30 13:43:38,507 - INFO - QRadPlannerApp.ui.dicom_viewer_3d - dicom_viewer_3d - update_volume - 3D View updated (Volume and Tumor).
+2025-05-30 13:43:38,507 - INFO - QRadPlannerApp.ui.main_window - main_window - _update_3d_viewer - 3D Viewer updated with new data.
+2025-05-30 13:44:05,915 - INFO - QRadPlannerApp.backend.data_manager - data_manager - initialize_planner - Initializing planner...
+2025-05-30 13:44:05,915 - INFO - QRadPlannerApp.backend.data_manager - data_manager - initialize_planner - Derived grid size from image properties: (512, 512, 91)
+2025-05-30 13:44:05,915 - INFO - QRadPlannerApp.backend.data_manager - data_manager - initialize_planner - Using number of beams: 8
+2025-05-30 13:44:05,915 - INFO - QRadPlannerApp.backend.radiotherapy_planner - radiotherapy_planner - __init__ - QRadPlan3D __init__: Initial self.num_phases = 10
+2025-05-30 13:44:05,915 - INFO - QRadPlannerApp.backend.radiotherapy_planner - radiotherapy_planner - __init__ - No DICOM paths provided by DataManager. Initializing with simplified model using DataManager's grid_size.
+2025-05-30 13:44:06,147 - INFO - QRadPlannerApp.backend.radiotherapy_planner - radiotherapy_planner - _initialize_simplified_model - Initialized with simplified model, grid_size: (512, 512, 91), self.num_phases SET TO: 1
+2025-05-30 13:44:06,147 - INFO - QRadPlannerApp.backend.radiotherapy_planner - radiotherapy_planner - __init__ - QRadPlan3D __init__: After _initialize_simplified_model (in final else), self.num_phases = 1
+2025-05-30 13:44:06,147 - INFO - QRadPlannerApp.backend.data_manager - data_manager - initialize_planner - QRadPlan3D planner initialized successfully with grid_size=(512, 512, 91), num_beams=8.
+2025-05-30 13:44:06,147 - INFO - QRadPlannerApp.backend.data_manager - data_manager - set_planner_tumor_mask - Setting tumor mask in planner...
+2025-05-30 13:44:06,151 - INFO - QRadPlannerApp.backend.radiotherapy_planner - radiotherapy_planner - set_tumor_data - Transposing input tumor mask from (91, 512, 512) to (512, 512, 91) to match planner grid (512, 512, 91)
+2025-05-30 13:44:06,475 - INFO - QRadPlannerApp.backend.radiotherapy_planner - radiotherapy_planner - set_tumor_data - Tumor data set. Planner ITV shape: (512, 512, 91), Volume: 23855104 voxels.
+2025-05-30 13:44:06,476 - INFO - QRadPlannerApp.backend.data_manager - data_manager - set_planner_tumor_mask - Tumor mask successfully set in planner.
+2025-05-30 13:44:06,476 - INFO - QRadPlannerApp.ui.main_window - main_window - _initialize_planner_from_ui - Planner initialized successfully. Tumor mask set in planner.
+2025-05-30 13:44:11,477 - INFO - QRadPlannerApp.backend.data_manager - data_manager - run_beam_optimization - Running beam optimization...
+2025-05-30 13:44:11,477 - INFO - QRadPlannerApp.backend.radiotherapy_planner - radiotherapy_planner - optimize_beams -   [optimize_beams] Starting classical optimization. Current self.num_phases = 1
+2025-05-30 13:44:11,477 - INFO - QRadPlannerApp.backend.radiotherapy_planner - radiotherapy_planner - optimize_beams -   [optimize_beams] Calculating dose influence matrix for 1 phases and 8 beams...
+/home/thennamalai/Documents/tech gramam/cancers/rt-prototype-qc/work-folder/project details/qradplan-env/lib/python3.10/site-packages/numba/np/ufunc/parallel.py:371: NumbaWarning: The TBB threading layer requires TBB version 2021 update 6 or later i.e., TBB_INTERFACE_VERSION >= 12060. Found TBB_INTERFACE_VERSION = 12050. The TBB threading layer is disabled.
+  warnings.warn(problem)
+Killed
+
