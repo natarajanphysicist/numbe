@@ -523,24 +523,27 @@ class QRadPlan3D:
                 max_dose_itv = np.max(doses_itv)
                 logger.info(f"CALC_DOSE: Normalization: max_dose_itv found: {max_dose_itv:.4e}")
             else:
-                logger.warning(f"CALC_DOSE: Normalization: No positive dose found in ITV (size {doses_itv.size}). max_dose_itv remains 0.")
+            logger.warning(f"CALC_DOSE: Normalization: No positive dose found in ITV (size {doses_itv.size}). max_dose_itv remains 0.")
         else:
             logger.warning("CALC_DOSE: Normalization: Tumor mask is None or empty. Cannot calculate max_dose_itv.")
 
+        # Determine global max AFTER all phase contributions but BEFORE normalization
+        global_max_dose_val = np.max(final_dose_crs) if np.any(final_dose_crs) else 0.0
+        logger.info(f"CALC_DOSE: Normalization: global_max_dose_val before normalization: {global_max_dose_val:.4e}")
 
-        if max_dose_itv > 1e-6: 
+
+        if max_dose_itv > 1e-10: # Lowered threshold
             norm_factor = base_dose_fx / max_dose_itv
-            logger.info(f"CALC_DOSE: Normalization: norm_factor = {base_dose_fx:.2f} / {max_dose_itv:.4e} = {norm_factor:.4e}")
+            logger.info(f"CALC_DOSE: Normalization: Normalizing to max_dose_itv ({max_dose_itv:.4e}). norm_factor = {base_dose_fx:.2f} / {max_dose_itv:.4e} = {norm_factor:.4e}")
             final_dose_crs *= norm_factor
-            logger.info(f"CALC_DOSE: Dose normalized to ITV. Max ITV dose pre-norm: {max_dose_itv:.2f}, target post-norm: {base_dose_fx:.2f} Gy.")
-        elif np.max(final_dose_crs) > 1e-6: 
-            global_max_dose = np.max(final_dose_crs)
-            norm_factor = base_dose_fx / global_max_dose
-            logger.warning(f"CALC_DOSE: Normalization: No dose in ITV or ITV undefined. Normalizing to global max dose. Global max: {global_max_dose:.4e}, norm_factor: {norm_factor:.4e}")
+            logger.info(f"CALC_DOSE: Dose normalized to ITV. Max ITV dose pre-norm: {max_dose_itv:.4e}, target post-norm: {base_dose_fx:.2f} Gy.")
+        elif global_max_dose_val > 1e-10: # Lowered threshold
+            norm_factor = base_dose_fx / global_max_dose_val
+            logger.warning(f"CALC_DOSE: Normalization: No significant dose in ITV (max_dose_itv={max_dose_itv:.4e}). Normalizing to global max dose ({global_max_dose_val:.4e}). norm_factor: {norm_factor:.4e}")
             final_dose_crs *= norm_factor
         else:
-            logger.warning("CALC_DOSE: Normalization: No dose calculated anywhere (max_dose_itv and global max dose are <= 1e-6). Returning zero dose.")
-            # No change to final_dose_crs, it's already zeros.
+            logger.warning(f"CALC_DOSE: Normalization: Max dose in ITV ({max_dose_itv:.4e}) and global max dose ({global_max_dose_val:.4e}) are both <= 1e-10. Dose remains very low or zero.")
+            # final_dose_crs is not changed, effectively returning near-zero dose.
 
         logger.info(f"CALC_DOSE: After normalization: final_dose_crs stats: min={final_dose_crs.min():.4e}, max={final_dose_crs.max():.4e}, mean={final_dose_crs.mean():.4e}, sum={np.sum(final_dose_crs):.4e}")
         return final_dose_crs.astype(np.float32)
