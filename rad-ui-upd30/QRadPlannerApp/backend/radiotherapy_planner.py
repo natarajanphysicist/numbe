@@ -523,7 +523,7 @@ class QRadPlan3D:
                 max_dose_itv = np.max(doses_itv)
                 logger.info(f"CALC_DOSE: Normalization: max_dose_itv found: {max_dose_itv:.4e}")
             else:
-            logger.warning(f"CALC_DOSE: Normalization: No positive dose found in ITV (size {doses_itv.size}). max_dose_itv remains 0.")
+                logger.warning(f"CALC_DOSE: Normalization: No positive dose found in ITV (size {doses_itv.size}). max_dose_itv remains 0.")
         else:
             logger.warning("CALC_DOSE: Normalization: Tumor mask is None or empty. Cannot calculate max_dose_itv.")
 
