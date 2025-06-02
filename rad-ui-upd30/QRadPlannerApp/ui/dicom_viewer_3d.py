@@ -137,23 +137,39 @@ class DicomViewer3DWidget(QWidget):
             return
 
         try: 
-            vtk_volume_image = self._numpy_to_vtkimage(volume_data_full_zyx.astype(np.float32), image_properties)
+            logger.info(f"3D View: Original full volume data range: {volume_data_full_zyx.min():.2f} to {volume_data_full_zyx.max():.2f}")
+            min_hu_display = -1024.0  # Typical lower bound for CT visualization
+            max_hu_display = 3000.0   # Typical upper bound for CT visualization (dense bone)
+            volume_data_clipped_zyx = np.clip(volume_data_full_zyx, min_hu_display, max_hu_display)
+            logger.info(f"3D View: Clipped volume data range for display: {volume_data_clipped_zyx.min():.2f} to {volume_data_clipped_zyx.max():.2f}")
+
+            vtk_volume_image = self._numpy_to_vtkimage(volume_data_clipped_zyx.astype(np.float32), image_properties)
             try:
                 scalar_range = vtk_volume_image.GetScalarRange()
                 logger.info(f"3D View: VTK Volume Image Scalar Range: {scalar_range[0]:.2f} to {scalar_range[1]:.2f}")
             except Exception as e_sr:
                 logger.warning(f"3D View: Could not get scalar range from vtk_volume_image: {e_sr}")
+
             color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
-            color_func.AddRGBPoint(-500,0.1,0.1,0.1);color_func.AddRGBPoint(0,0.5,0.5,0.5);color_func.AddRGBPoint(400,0.8,0.8,0.7);color_func.AddRGBPoint(1000,0.9,0.9,0.9);color_func.AddRGBPoint(3000,1,1,1)
-            opacity_func.AddPoint(-1000, 0.0)  # Air/Very low density
-            opacity_func.AddPoint(-300, 0.0)   # Still mostly transparent
-            opacity_func.AddPoint(-100, 0.01)  # Start of very faint visibility for low density tissue/fluid
-            opacity_func.AddPoint(0, 0.05)     # Typical soft tissue baseline
-            opacity_func.AddPoint(40, 0.15)    # Emphasize typical brain HU values (e.g., gray/white matter around 20-45 HU)
-            opacity_func.AddPoint(80, 0.2)     # Upper soft tissue
-            opacity_func.AddPoint(200, 0.25)   # Denser soft tissue / early calcification
-            opacity_func.AddPoint(500, 0.5)    # Bone
-            opacity_func.AddPoint(3000, 0.85)  # Very dense structures
+
+            # Define Color Transfer Function points
+            color_func.AddRGBPoint(min_hu_display, 0.0, 0.0, 0.0); # Black for min_hu_display
+            color_func.AddRGBPoint(-500, 0.1, 0.1, 0.1);       # Dark gray
+            color_func.AddRGBPoint(0, 0.4, 0.4, 0.4);          # Mid gray for soft tissue
+            color_func.AddRGBPoint(500, 0.7, 0.7, 0.7);        # Lighter gray
+            color_func.AddRGBPoint(1000, 0.9, 0.9, 0.9);       # Very light gray for bone
+            color_func.AddRGBPoint(max_hu_display, 1.0, 1.0, 1.0); # White for max_hu_display
+
+            # Define Opacity Transfer Function points
+            opacity_func.AddPoint(min_hu_display, 0.0);      # Air/background (using the clipped min)
+            opacity_func.AddPoint(-500, 0.0);
+            opacity_func.AddPoint(0, 0.05);                  # Soft tissue baseline
+            opacity_func.AddPoint(50, 0.15);                 # Brain gray/white matter (example focus)
+            opacity_func.AddPoint(100, 0.2);                 # Denser soft tissue
+            opacity_func.AddPoint(200, 0.3);
+            opacity_func.AddPoint(1000, 0.7);                # Bone
+            opacity_func.AddPoint(max_hu_display, 0.85);     # Max clipped value
+
             self.volume_property = vtkVolumeProperty(); self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
             self.volume_property.SetInterpolationTypeToLinear(); self.volume_property.ShadeOn(); self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
             volume_mapper = vtkSmartVolumeMapper(); volume_mapper.SetInputData(vtk_volume_image)

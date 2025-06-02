@@ -81,11 +81,23 @@ class TumorDetector:
             logger.info(f"detect_tumors: Found {num_features} distinct peak regions to use as markers for watershed.")
 
             # The image for watershed: use negative of blurred volume so peaks are "low points"
-            watershed_image = -volume_blurred
+            watershed_image = -volume_blurred # volume_blurred is normalized [0,1] and blurred
 
-            # The mask for watershed limits segmentation to areas where image_mask is True.
-            # If we want to segment the whole volume, use np.ones_like.
-            watershed_segmentation_mask = np.ones_like(volume_prepared_for_peaks, dtype=bool)
+            # Create a constraint mask for watershed:
+            # Only allow watershed to segment regions where the normalized&blurred intensity is above a certain level.
+            # This helps prevent watershed from "leaking" into irrelevant areas.
+            # Threshold is on the normalized [0,1] scale of volume_blurred.
+            # A value of 0.2 could mean roughly values above -600 HU if -1000 HU is 0 and max HU is 1.
+            # Let's try a threshold that might correspond to denser soft tissue.
+            # If 0 HU is normalized to around 0.2-0.3 (depending on actual min/max of original volume),
+            # then a threshold like 0.3 might be a starting point to exclude very low densities.
+            threshold_for_watershed_constraint = 0.3 # Tune this value
+            watershed_segmentation_mask = volume_blurred > threshold_for_watershed_constraint
+            logger.info(f"detect_tumors: Watershed will be constrained to mask where blurred normalized value > {threshold_for_watershed_constraint}. Mask sum: {np.sum(watershed_segmentation_mask)}")
+
+            if not np.any(labeled_peak_markers & watershed_segmentation_mask):
+                logger.warning("detect_tumors: None of the peak markers fall within the watershed constraint mask. Tumor mask will be empty.")
+                return np.zeros_like(volume_prepared_for_peaks, dtype=bool)
 
             labels_ws = watershed(watershed_image, markers=labeled_peak_markers, mask=watershed_segmentation_mask, connectivity=1) # connectivity can be tuned; Renamed to labels_ws
             logger.info(f"detect_tumors: Watershed segmentation done. Unique labels count: {len(np.unique(labels_ws))}")
@@ -94,7 +106,7 @@ class TumorDetector:
             # `labels_ws` now contains the segmented regions. Regions corresponding to markers will have their respective label.
             # Background (where no basin formed from a marker) will be 0.
             final_tumor_mask = np.zeros_like(volume_prepared_for_peaks, dtype=bool)
-            min_tumor_area = 100 # Example minimum size in voxels
+            min_tumor_area = 3000 # Example minimum size in voxels
             found_regions_after_filter = 0
 
             # Iterate through unique labels found by watershed, skipping 0 (background)

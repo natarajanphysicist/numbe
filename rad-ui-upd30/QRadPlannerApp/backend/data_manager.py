@@ -242,7 +242,7 @@ class DataManager:
             if self.planner.beam_weights is not None: beam_weights_to_use = self.planner.beam_weights
             else: logger.error("Beam weights not available."); return False
         try:
-            dose_volume_crs = self.planner.calculate_dose(beam_weights=beam_weights_to_use)
+            dose_volume_crs = self.planner.calculate_dose(beam_weights_in=beam_weights_to_use)
             if dose_volume_crs is None: logger.error("Dose calculation returned None."); return False
             self.dose_distribution = dose_volume_crs 
             logger.info(f"Dose distribution calculated. Shape (c,r,s): {self.dose_distribution.shape}, "
