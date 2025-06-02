@@ -152,29 +152,30 @@ class DicomViewer3DWidget(QWidget):
 
             color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
 
-            # Define Color Transfer Function points
-            color_func.AddRGBPoint(min_hu_display, 0.0, 0.0, 0.0); # Black for min_hu_display
-            color_func.AddRGBPoint(-500, 0.1, 0.1, 0.1);       # Dark gray
-            color_func.AddRGBPoint(0, 0.4, 0.4, 0.4);          # Mid gray for soft tissue
-            color_func.AddRGBPoint(500, 0.7, 0.7, 0.7);        # Lighter gray
-            color_func.AddRGBPoint(1000, 0.9, 0.9, 0.9);       # Very light gray for bone
-            color_func.AddRGBPoint(max_hu_display, 1.0, 1.0, 1.0); # White for max_hu_display
+            # Experiment 1: Simplified and more opaque transfer functions
+            logger.info("3D View: Applying new simplified color transfer function.")
+            color_func.AddRGBPoint(min_hu_display, 0.1, 0.1, 0.1)
+            color_func.AddRGBPoint(0.0, 0.5, 0.5, 0.5)
+            color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9)
 
-            # Define Opacity Transfer Function points
-            opacity_func.AddPoint(min_hu_display, 0.0);      # Air/background (using the clipped min)
-            opacity_func.AddPoint(-500, 0.0);
-            opacity_func.AddPoint(0, 0.05);                  # Soft tissue baseline
-            opacity_func.AddPoint(50, 0.15);                 # Brain gray/white matter (example focus)
-            opacity_func.AddPoint(100, 0.2);                 # Denser soft tissue
-            opacity_func.AddPoint(200, 0.3);
-            opacity_func.AddPoint(1000, 0.7);                # Bone
-            opacity_func.AddPoint(max_hu_display, 0.85);     # Max clipped value
+            logger.info("3D View: Applying new simplified opacity transfer function.")
+            opacity_func.AddPoint(min_hu_display, 0.0)      # min_hu_display is already defined from clipping
+            opacity_func.AddPoint(-300.0, 0.0)
+            opacity_func.AddPoint(0.0, 0.15)  # Increased base visibility for soft tissue
+            opacity_func.AddPoint(500.0, 0.3) # Denser tissue / bone
+            opacity_func.AddPoint(max_hu_display, 0.6)      # max_hu_display is already defined
 
             self.volume_property = vtkVolumeProperty(); self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
             self.volume_property.SetInterpolationTypeToLinear(); self.volume_property.ShadeOn(); self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
             volume_mapper = vtkSmartVolumeMapper(); volume_mapper.SetInputData(vtk_volume_image)
             self.volume_actor = vtkVolume(); self.volume_actor.SetMapper(volume_mapper); self.volume_actor.SetProperty(self.volume_property)
-            self.ren.AddVolume(self.volume_actor); logger.info("DICOM volume actor added.")
+            self.ren.AddVolume(self.volume_actor)
+            try:
+                bounds = self.volume_actor.GetBounds()
+                logger.info(f"3D View: Volume actor bounds: {bounds}")
+            except Exception as e_bounds:
+                logger.warning(f"3D View: Could not get volume actor bounds: {e_bounds}")
+            logger.info("DICOM volume actor added.")
         except Exception as e_vol:
             logger.error(f"Error creating DICOM volume actor: {e_vol}", exc_info=True)
             if self.volume_actor: self.ren.RemoveVolume(self.volume_actor); self.volume_actor = None
