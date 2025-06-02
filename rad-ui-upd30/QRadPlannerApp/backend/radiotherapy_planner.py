@@ -440,33 +440,72 @@ class QRadPlan3D:
 
     def calculate_dose(self, beam_weights_in: np.ndarray) -> np.ndarray: # beam_weights_in is alias for beam_weights
         self._ensure_data_loaded() 
+        logger.info(f"CALC_DOSE: Starting dose calculation. Input beam_weights_in: {beam_weights_in}")
+        logger.info(f"CALC_DOSE: Dose kernel stats: min={self.dose_kernel.min():.4e}, max={self.dose_kernel.max():.4e}, mean={self.dose_kernel.mean():.4e}, shape={self.dose_kernel.shape}")
+
         final_dose_crs = np.zeros(self.grid_size, dtype=np.float32) 
         if not self.density_grids_phases: 
-            logger.error("No density grids for dose calculation.")
+            logger.error("CALC_DOSE: No density grids for dose calculation.")
             if self.density_grid is not None: 
-                logger.warning("Using average density_grid for dose calc as phases missing.")
+                logger.warning("CALC_DOSE: Using average density_grid for dose calc as phases missing.")
                 self.density_grids_phases = [self.density_grid.copy()]
                 self.num_phases = 1; self.respiratory_phase_weights = np.array([1.0], dtype=np.float32)
             else: return final_dose_crs
+
         if len(beam_weights_in) != len(self.beam_directions):
-            logger.error(f"Beam weights/directions mismatch."); return final_dose_crs
+            logger.error(f"CALC_DOSE: Beam weights length {len(beam_weights_in)} and beam_directions length {len(self.beam_directions)} mismatch. Returning zero dose.")
+            return final_dose_crs
 
         for phase_idx in range(self.num_phases):
+            logger.info(f"CALC_DOSE: Processing phase {phase_idx + 1}/{self.num_phases}")
             phase_dose_contrib_crs = np.zeros(self.grid_size, dtype=np.float32) 
             current_density_grid_crs = self.density_grids_phases[phase_idx]
+            logger.info(f"CALC_DOSE: Phase {phase_idx} density grid stats: min={current_density_grid_crs.min():.4f}, max={current_density_grid_crs.max():.4f}, mean={current_density_grid_crs.mean():.4f}")
+
             mean_density_phase = np.mean(current_density_grid_crs[current_density_grid_crs > 1e-6])
-            if not (mean_density_phase > 1e-6): mean_density_phase = 1.0
+            if not (mean_density_phase > 1e-6):
+                mean_density_phase = 1.0
+                logger.warning(f"CALC_DOSE: Phase {phase_idx} mean_density_phase was <= 1e-6, set to 1.0 to avoid division by zero.")
+            logger.info(f"CALC_DOSE: Phase {phase_idx} mean_density_phase for scaling: {mean_density_phase:.4f}")
 
             for i, (direction, weight) in enumerate(zip(self.beam_directions, beam_weights_in)):
-                if weight == 0: continue
+                logger.info(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: weight={weight:.4f}, direction=({direction[0]:.2f},{direction[1]:.2f},{direction[2]:.2f})")
+                if weight == 0:
+                    logger.info(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: weight is 0, skipping.")
+                    continue
+
                 source_crs = self._get_source_position(direction)
+                logger.info(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: source_crs=({source_crs[0]:.1f},{source_crs[1]:.1f},{source_crs[2]:.1f})")
+
                 fluence_crs = calculate_primary_fluence_numba(source_crs, np.array(direction, dtype=np.float64), current_density_grid_crs, self.grid_size)
+                logger.info(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: fluence_crs stats: min={fluence_crs.min():.4e}, max={fluence_crs.max():.4e}, mean={fluence_crs.mean():.4e}, sum={np.sum(fluence_crs):.4e}")
+
+                if np.sum(fluence_crs) == 0:
+                    logger.warning(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: Fluence is all zero. Partial dose will be zero.")
+
                 partial_dose_beam_crs = convolve(fluence_crs, self.dose_kernel, mode="constant", cval=0.0)
+                logger.info(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: after convolve stats: min={partial_dose_beam_crs.min():.4e}, max={partial_dose_beam_crs.max():.4e}, mean={partial_dose_beam_crs.mean():.4e}, sum={np.sum(partial_dose_beam_crs):.4e}")
+
+                # Store pre-density scaling stats
+                pre_density_scale_sum = np.sum(partial_dose_beam_crs)
+
                 partial_dose_beam_crs *= (current_density_grid_crs / mean_density_phase)
+                logger.info(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: after density scaling stats: min={partial_dose_beam_crs.min():.4e}, max={partial_dose_beam_crs.max():.4e}, mean={partial_dose_beam_crs.mean():.4e}, sum={np.sum(partial_dose_beam_crs):.4e}")
+
+                if pre_density_scale_sum > 0 and np.sum(partial_dose_beam_crs) == 0:
+                    logger.warning(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: Dose became zero after density scaling. Check density grid values relative to mean_density_phase.")
+
                 phase_dose_contrib_crs += weight * partial_dose_beam_crs
+                logger.info(f"CALC_DOSE: Phase {phase_idx}, Beam {i}: updated phase_dose_contrib_crs sum={np.sum(phase_dose_contrib_crs):.4e}")
+
             final_dose_crs += self.respiratory_phase_weights[phase_idx] * phase_dose_contrib_crs
+            logger.info(f"CALC_DOSE: Phase {phase_idx} contribution added. Current final_dose_crs sum={np.sum(final_dose_crs):.4e}")
+
+        logger.info(f"CALC_DOSE: Before normalization: final_dose_crs stats: min={final_dose_crs.min():.4e}, max={final_dose_crs.max():.4e}, mean={final_dose_crs.mean():.4e}, sum={np.sum(final_dose_crs):.4e}")
         
         tumor_vol_vox = np.sum(self.tumor_mask) if self.tumor_mask is not None else 0
+        logger.info(f"CALC_DOSE: Normalization: tumor_mask exists: {self.tumor_mask is not None}, tumor_vol_vox: {tumor_vol_vox}")
+
         tumor_vol_cc = tumor_vol_vox * self.voxel_volume 
         base_dose_fx = 2.0 
         if tumor_vol_cc > 0: 
@@ -475,21 +514,35 @@ class QRadPlan3D:
             else: 
                 scale = (tumor_vol_cc - 5.0) / (25.0)
                 base_dose_fx = 4.0 * (1.0 - scale) + 2.0 * scale
-        logger.info(f"Base dose/fx for normalization: {base_dose_fx:.2f} Gy (Tumor vol {tumor_vol_cc:.2f} cc).")
+        logger.info(f"CALC_DOSE: Normalization: base_dose_fx: {base_dose_fx:.2f} Gy (Tumor vol {tumor_vol_cc:.2f} cc).")
 
         max_dose_itv = 0.0
         if self.tumor_mask is not None and np.any(self.tumor_mask):
             doses_itv = final_dose_crs[self.tumor_mask]
-            if doses_itv.size > 0 and np.any(doses_itv): max_dose_itv = np.max(doses_itv)
+            if doses_itv.size > 0 and np.any(doses_itv):
+                max_dose_itv = np.max(doses_itv)
+                logger.info(f"CALC_DOSE: Normalization: max_dose_itv found: {max_dose_itv:.4e}")
+            else:
+                logger.warning(f"CALC_DOSE: Normalization: No positive dose found in ITV (size {doses_itv.size}). max_dose_itv remains 0.")
+        else:
+            logger.warning("CALC_DOSE: Normalization: Tumor mask is None or empty. Cannot calculate max_dose_itv.")
+
 
         if max_dose_itv > 1e-6: 
             norm_factor = base_dose_fx / max_dose_itv
+            logger.info(f"CALC_DOSE: Normalization: norm_factor = {base_dose_fx:.2f} / {max_dose_itv:.4e} = {norm_factor:.4e}")
             final_dose_crs *= norm_factor
-            logger.info(f"Dose normalized. Max ITV dose pre-norm: {max_dose_itv:.2f}, target post-norm: {base_dose_fx:.2f} Gy.")
+            logger.info(f"CALC_DOSE: Dose normalized to ITV. Max ITV dose pre-norm: {max_dose_itv:.2f}, target post-norm: {base_dose_fx:.2f} Gy.")
         elif np.max(final_dose_crs) > 1e-6: 
-            logger.warning("No dose in ITV or ITV undefined. Normalizing to global max dose.")
-            final_dose_crs *= (base_dose_fx / np.max(final_dose_crs))
-        else: logger.warning("No dose calculated anywhere. Returning zero dose.")
+            global_max_dose = np.max(final_dose_crs)
+            norm_factor = base_dose_fx / global_max_dose
+            logger.warning(f"CALC_DOSE: Normalization: No dose in ITV or ITV undefined. Normalizing to global max dose. Global max: {global_max_dose:.4e}, norm_factor: {norm_factor:.4e}")
+            final_dose_crs *= norm_factor
+        else:
+            logger.warning("CALC_DOSE: Normalization: No dose calculated anywhere (max_dose_itv and global max dose are <= 1e-6). Returning zero dose.")
+            # No change to final_dose_crs, it's already zeros.
+
+        logger.info(f"CALC_DOSE: After normalization: final_dose_crs stats: min={final_dose_crs.min():.4e}, max={final_dose_crs.max():.4e}, mean={final_dose_crs.mean():.4e}, sum={np.sum(final_dose_crs):.4e}")
         return final_dose_crs.astype(np.float32)
 
     def optimize_beams(self) -> np.ndarray: 
