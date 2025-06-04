@@ -152,21 +152,24 @@ class DicomViewer3DWidget(QWidget):
 
             color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
 
-            # Experiment 1: Simplified and more opaque transfer functions
-            logger.info("3D View: Applying new simplified color transfer function.")
-            color_func.AddRGBPoint(min_hu_display, 0.1, 0.1, 0.1)
-            color_func.AddRGBPoint(0.0, 0.5, 0.5, 0.5)
-            color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9)
+            # Experiment 2: Aggressive simplified transfer functions
+            logger.info("3D View: Applying AGGRESSIVE simplified color transfer function.")
+            color_func.AddRGBPoint(min_hu_display, 0.2, 0.2, 0.2) # Dark gray
+            color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9) # Light gray
 
-            logger.info("3D View: Applying new simplified opacity transfer function.")
-            opacity_func.AddPoint(min_hu_display, 0.0)      # min_hu_display is already defined from clipping
-            opacity_func.AddPoint(-300.0, 0.0)
-            opacity_func.AddPoint(0.0, 0.15)  # Increased base visibility for soft tissue
-            opacity_func.AddPoint(500.0, 0.3) # Denser tissue / bone
-            opacity_func.AddPoint(max_hu_display, 0.6)      # max_hu_display is already defined
+            logger.info("3D View: Applying AGGRESSIVE simplified opacity transfer function for basic visibility test.")
+            opacity_func.AddPoint(min_hu_display, 0.0)  # min_hu_display is -1024.0
+            opacity_func.AddPoint(-300.0, 0.0)          # Air-like regions mostly transparent
+            opacity_func.AddPoint(-299.0, 0.25)         # Sharp step to make soft tissues visible
+            opacity_func.AddPoint(max_hu_display, 0.25) # max_hu_display is 3000.0. All tissue/bone has some opacity.
+            # For even more aggressive: opacity_func.AddPoint(0.0, 0.3); opacity_func.AddPoint(1000.0, 0.5);
 
             self.volume_property = vtkVolumeProperty(); self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
-            self.volume_property.SetInterpolationTypeToLinear(); self.volume_property.ShadeOn(); self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
+            self.volume_property.SetInterpolationTypeToLinear();
+            # self.volume_property.ShadeOn(); # Original line
+            logger.info("3D View: Turning OFF shading for basic visibility test.")
+            self.volume_property.ShadeOff()
+            self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
             volume_mapper = vtkSmartVolumeMapper(); volume_mapper.SetInputData(vtk_volume_image)
             self.volume_actor = vtkVolume(); self.volume_actor.SetMapper(volume_mapper); self.volume_actor.SetProperty(self.volume_property)
             self.ren.AddVolume(self.volume_actor)
@@ -203,6 +206,14 @@ class DicomViewer3DWidget(QWidget):
         if self.vtkWidget.GetRenderWindow():
             self.ren.ResetCamera()
             self.ren.ResetCameraClippingRange()
+            try:
+                camera = self.ren.GetActiveCamera()
+                if camera:
+                    logger.info(f"3D View: Camera Position: {camera.GetPosition()}, FocalPoint: {camera.GetFocalPoint()}, ViewUp: {camera.GetViewUp()}, ClipRange: {camera.GetClippingRange()}, ViewAngle: {camera.GetViewAngle()}")
+                else:
+                    logger.warning("3D View: No active camera found to log parameters.")
+            except Exception as e_cam:
+                logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
         logger.info("3D View updated (Volume, Tumor, OARs).")
 
