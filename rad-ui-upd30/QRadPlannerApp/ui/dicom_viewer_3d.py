@@ -15,8 +15,12 @@ from vtkmodules.vtkRenderingCore import (
     vtkColorTransferFunction,
     vtkPolyDataMapper,
     vtkActor,
+    vtkImageActor, # Added for 2D slice test
 )
-from vtkmodules.vtkImagingCore import vtkImageShiftScale # Not used in current version but kept if needed later
+from vtkmodules.vtkImagingCore import vtkImageShiftScale, vtkImageReslice # Added vtkImageReslice for 2D slice test
+# vtkImageMapper is usually implicitly handled by vtkImageActor or needs vtkDataSetMapper for some scenarios.
+# For vtkImageActor, a vtkImageSliceMapper can be used, or it might default.
+# Let's try with vtkImageActor's default capabilities first.
 from vtkmodules.vtkFiltersCore import vtkMarchingCubes
 from vtkmodules.vtkFiltersGeneral import vtkDiscreteMarchingCubes # Good for binary masks
 from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylinderSource # For beam viz
@@ -150,9 +154,49 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_sr:
                 logger.warning(f"3D View: Could not get scalar range from vtk_volume_image: {e_sr}")
 
+        # --- START OF VTK IMAGE PLANE TEST ---
+        logger.info("3D View Test: Attempting to display a central 2D slice as vtkImageActor.")
+        if volume_data_clipped_zyx is not None and volume_data_clipped_zyx.ndim == 3 and volume_data_clipped_zyx.shape[0] > 0:
+            central_slice_idx = volume_data_clipped_zyx.shape[0] // 2
+            slice_2d_data_zyx = volume_data_clipped_zyx[central_slice_idx, :, :]
+
+            # Create a new 2D vtkImageData for this slice
+            vtk_slice_image = vtkImageData()
+            rows, cols = slice_2d_data_zyx.shape
+            vtk_slice_image.SetDimensions(cols, rows, 1) # depth is 1 for a 2D image
+
+            if image_properties: # Use original image_properties for spacing and origin
+                col_spacing = image_properties.get('pixel_spacing', [1.0,1.0])[1]
+                row_spacing = image_properties.get('pixel_spacing', [1.0,1.0])[0]
+                vtk_slice_image.SetSpacing(col_spacing, row_spacing, 1.0) # X, Y spacing, Z spacing can be nominal
+
+                slice_vtk_array = numpy_support.numpy_to_vtk(num_array=slice_2d_data_zyx.ravel(order='F'), deep=True)
+                vtk_slice_image.GetPointData().SetScalars(slice_vtk_array)
+
+                self.test_slice_actor = vtkImageActor()
+                self.test_slice_actor.GetMapper().SetInputData(vtk_slice_image)
+                self.test_slice_actor.SetDisplayExtent(0, cols-1, 0, rows-1, 0, 0)
+
+                slice_min = np.min(slice_2d_data_zyx)
+                slice_max = np.max(slice_2d_data_zyx)
+                self.test_slice_actor.GetProperty().SetColorWindow(slice_max - slice_min)
+                self.test_slice_actor.GetProperty().SetColorLevel((slice_max + slice_min) / 2.0)
+
+                self.ren.AddActor(self.test_slice_actor)
+                logger.info(f"3D View Test: Added vtkImageActor for slice {central_slice_idx}. Data range: {slice_min:.2f}-{slice_max:.2f}")
+                try:
+                    slice_actor_bounds = self.test_slice_actor.GetBounds()
+                    logger.info(f"3D View Test: Slice actor bounds: {slice_actor_bounds}")
+                except Exception as e_sab:
+                    logger.warning(f"3D View Test: Could not get slice_actor bounds: {e_sab}")
+            else:
+                logger.warning("3D View Test: No image_properties, cannot set spacing/origin for test slice actor.")
+        else:
+            logger.warning("3D View Test: Clipped volume data not suitable for extracting a 2D slice.")
+        # --- END OF VTK IMAGE PLANE TEST ---
+
             color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
 
-            # Experiment 2: Aggressive simplified transfer functions
             logger.info("3D View: Applying AGGRESSIVE simplified color transfer function.")
             color_func.AddRGBPoint(min_hu_display, 0.2, 0.2, 0.2) # Dark gray
             color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9) # Light gray
@@ -162,25 +206,27 @@ class DicomViewer3DWidget(QWidget):
             opacity_func.AddPoint(-300.0, 0.0)          # Air-like regions mostly transparent
             opacity_func.AddPoint(-299.0, 0.25)         # Sharp step to make soft tissues visible
             opacity_func.AddPoint(max_hu_display, 0.25) # max_hu_display is 3000.0. All tissue/bone has some opacity.
-            # For even more aggressive: opacity_func.AddPoint(0.0, 0.3); opacity_func.AddPoint(1000.0, 0.5);
 
             self.volume_property = vtkVolumeProperty(); self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
             self.volume_property.SetInterpolationTypeToLinear();
-            # self.volume_property.ShadeOn(); # Original line
             logger.info("3D View: Turning OFF shading for basic visibility test.")
             self.volume_property.ShadeOff()
             self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
-            volume_mapper = vtkSmartVolumeMapper(); volume_mapper.SetInputData(vtk_volume_image)
-            self.volume_actor = vtkVolume(); self.volume_actor.SetMapper(volume_mapper); self.volume_actor.SetProperty(self.volume_property)
-            self.ren.AddVolume(self.volume_actor)
-            try:
-                bounds = self.volume_actor.GetBounds()
-                logger.info(f"3D View: Volume actor bounds: {bounds}")
-            except Exception as e_bounds:
-                logger.warning(f"3D View: Could not get volume actor bounds: {e_bounds}")
-            logger.info("DICOM volume actor added.")
+
+            # Temporarily disable 3D volume rendering by not re-creating/adding self.volume_actor
+            # volume_mapper = vtkSmartVolumeMapper(); volume_mapper.SetInputData(vtk_volume_image) # vtk_volume_image is 3D
+            # self.volume_actor = vtkVolume(); self.volume_actor.SetMapper(volume_mapper); self.volume_actor.SetProperty(self.volume_property)
+            # self.ren.AddVolume(self.volume_actor) # << THIS LINE IS EFFECTIVELY COMMENTED OUT
+            # try:
+            #     bounds = self.volume_actor.GetBounds()
+            #     logger.info(f"3D View: Volume actor bounds: {bounds}")
+            # except Exception as e_bounds:
+            #     logger.warning(f"3D View: Could not get volume actor bounds: {e_bounds}")
+            # logger.info("DICOM volume actor added.") # This log might be misleading now
+            logger.info("3D View: Main volume rendering temporarily bypassed for 2D slice test.")
+
         except Exception as e_vol:
-            logger.error(f"Error creating DICOM volume actor: {e_vol}", exc_info=True)
+            logger.error(f"Error during 3D view update (possibly volume or slice actor): {e_vol}", exc_info=True)
             if self.volume_actor: self.ren.RemoveVolume(self.volume_actor); self.volume_actor = None
 
 
@@ -215,7 +261,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Volume, Tumor, OARs).")
+        logger.info("3D View updated (Volume, Tumor, OARs, Test Slice).") # Updated log
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
