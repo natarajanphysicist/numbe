@@ -56,34 +56,21 @@ class DicomViewer3DWidget(QWidget):
         self.dose_isosurface_actors: List[vtkActor] = []
         self.beam_visualization_actors: List[vtkActor] = []
         self.image_properties_for_viz: Optional[Dict] = None # Store for transformations
+        self.test_slice_actor: Optional[vtkImageActor] = None # For the 2D slice test
 
         self.vtkWidget.Initialize()
         logger.info("DicomViewer3DWidget initialized.")
 
     def _numpy_to_vtkimage(self, np_array_s_r_c: np.ndarray, image_properties: Optional[Dict] = None) -> vtkImageData:
-        """
-        Converts a NumPy array (slices, rows, cols) to vtkImageData.
-        Sets spacing and origin if properties are provided.
-        VTK ImageData expects dimensions (width, height, depth) i.e. (cols, rows, slices).
-        np_array_s_r_c.ravel(order='F') should produce data in VTK's xyz order.
-        """
         vtk_image = vtkImageData()
-        depth_s, height_r, width_c = np_array_s_r_c.shape # slices, rows, cols
-        vtk_image.SetDimensions(width_c, height_r, depth_s) # VTK: width, height, depth
+        depth_s, height_r, width_c = np_array_s_r_c.shape
+        vtk_image.SetDimensions(width_c, height_r, depth_s)
 
         if image_properties:
-            # image_properties['pixel_spacing'] is [row_spacing, col_spacing]
-            # image_properties['slice_thickness'] is z_spacing
-            # VTK spacing is (spacing_x, spacing_y, spacing_z) -> (col_spacing, row_spacing, slice_thk)
-            spacing_x_vtk = image_properties.get('pixel_spacing', [1.0, 1.0])[1] # Col spacing
-            spacing_y_vtk = image_properties.get('pixel_spacing', [1.0, 1.0])[0] # Row spacing
+            spacing_x_vtk = image_properties.get('pixel_spacing', [1.0, 1.0])[1]
+            spacing_y_vtk = image_properties.get('pixel_spacing', [1.0, 1.0])[0]
             spacing_z_vtk = image_properties.get('slice_thickness', 1.0)
             vtk_image.SetSpacing(spacing_x_vtk, spacing_y_vtk, spacing_z_vtk)
-            
-            # Origin is (x,y,z) of the first voxel's corner (or center depending on DICOM interpretation).
-            # For ITK/VTK, typically corner. DICOM ImagePositionPatient is center of first voxel.
-            # This needs careful alignment if absolute patient coordinates are critical.
-            # For now, assume image_properties['origin'] is directly usable.
             origin_pat = image_properties.get('origin', [0.0, 0.0, 0.0])
             vtk_image.SetOrigin(origin_pat[0], origin_pat[1], origin_pat[2])
         else: 
@@ -125,34 +112,35 @@ class DicomViewer3DWidget(QWidget):
                       tumor_mask_full_zyx: Optional[np.ndarray] = None,   # (s,r,c)
                       oar_masks_full_zyx: Optional[Dict[str, np.ndarray]] = None): # (s,r,c)
         
-        self.image_properties_for_viz = image_properties # Store for beam viz and coord transforms
+        self.image_properties_for_viz = image_properties
 
         logger.info("Updating 3D Viewer (Volume, Tumor, OARs)...")
         if self.volume_actor is not None: self.ren.RemoveVolume(self.volume_actor); self.volume_actor = None
+        if self.test_slice_actor is not None: self.ren.RemoveActor(self.test_slice_actor); self.test_slice_actor = None # Clear previous slice actor
         if self.tumor_actor is not None: self.ren.RemoveActor(self.tumor_actor); self.tumor_actor = None
         self._clear_oar_actors()
-        self._clear_beam_visualization() # Clear beams when volume changes
+        self._clear_beam_visualization()
 
         if volume_data_full_zyx is None or image_properties is None:
             logger.info("No volume data or properties to display in 3D view.")
-            if self.vtkWidget.GetRenderWindow(): # Ensure render window exists
+            if self.vtkWidget.GetRenderWindow():
                 self.ren.ResetCamera()
                 self.vtkWidget.GetRenderWindow().Render()
             return
 
-        try: 
-            logger.info(f"3D View: Original full volume data range: {volume_data_full_zyx.min():.2f} to {volume_data_full_zyx.max():.2f}")
-            min_hu_display = -1024.0  # Typical lower bound for CT visualization
-            max_hu_display = 3000.0   # Typical upper bound for CT visualization (dense bone)
-            volume_data_clipped_zyx = np.clip(volume_data_full_zyx, min_hu_display, max_hu_display)
-            logger.info(f"3D View: Clipped volume data range for display: {volume_data_clipped_zyx.min():.2f} to {volume_data_clipped_zyx.max():.2f}")
+        # Clipping and original vtk_volume_image creation (needed for slice test too)
+        logger.info(f"3D View: Original full volume data range: {volume_data_full_zyx.min():.2f} to {volume_data_full_zyx.max():.2f}")
+        min_hu_display = -1024.0
+        max_hu_display = 3000.0
+        volume_data_clipped_zyx = np.clip(volume_data_full_zyx, min_hu_display, max_hu_display)
+        logger.info(f"3D View: Clipped volume data range for display: {volume_data_clipped_zyx.min():.2f} to {volume_data_clipped_zyx.max():.2f}")
 
-            vtk_volume_image = self._numpy_to_vtkimage(volume_data_clipped_zyx.astype(np.float32), image_properties)
-            try:
-                scalar_range = vtk_volume_image.GetScalarRange()
-                logger.info(f"3D View: VTK Volume Image Scalar Range: {scalar_range[0]:.2f} to {scalar_range[1]:.2f}")
-            except Exception as e_sr:
-                logger.warning(f"3D View: Could not get scalar range from vtk_volume_image: {e_sr}")
+        vtk_volume_image = self._numpy_to_vtkimage(volume_data_clipped_zyx.astype(np.float32), image_properties)
+        try:
+            scalar_range = vtk_volume_image.GetScalarRange()
+            logger.info(f"3D View: VTK Volume Image Scalar Range: {scalar_range[0]:.2f} to {scalar_range[1]:.2f}")
+        except Exception as e_sr:
+            logger.warning(f"3D View: Could not get scalar range from vtk_volume_image: {e_sr}")
 
         # --- START OF VTK IMAGE PLANE TEST ---
         logger.info("3D View Test: Attempting to display a central 2D slice as vtkImageActor.")
@@ -160,30 +148,52 @@ class DicomViewer3DWidget(QWidget):
             central_slice_idx = volume_data_clipped_zyx.shape[0] // 2
             slice_2d_data_zyx = volume_data_clipped_zyx[central_slice_idx, :, :]
 
-            # Create a new 2D vtkImageData for this slice
             vtk_slice_image = vtkImageData()
             rows, cols = slice_2d_data_zyx.shape
-            vtk_slice_image.SetDimensions(cols, rows, 1) # depth is 1 for a 2D image
+            vtk_slice_image.SetDimensions(cols, rows, 1)
 
-            if image_properties: # Use original image_properties for spacing and origin
+            if image_properties:
                 col_spacing = image_properties.get('pixel_spacing', [1.0,1.0])[1]
                 row_spacing = image_properties.get('pixel_spacing', [1.0,1.0])[0]
-                vtk_slice_image.SetSpacing(col_spacing, row_spacing, 1.0) # X, Y spacing, Z spacing can be nominal
+                vtk_slice_image.SetSpacing(col_spacing, row_spacing, 1.0)
+
+                base_origin = image_properties.get('origin', [0.0, 0.0, 0.0])
+                slice_thickness = image_properties.get('slice_thickness', 1.0)
+                # For vtkImageActor, its position can be set. The origin of vtkImageData for the slice can be simple.
+                vtk_slice_image.SetOrigin(0,0,0) # Keep slice origin simple; actor will be positioned.
+
 
                 slice_vtk_array = numpy_support.numpy_to_vtk(num_array=slice_2d_data_zyx.ravel(order='F'), deep=True)
                 vtk_slice_image.GetPointData().SetScalars(slice_vtk_array)
 
                 self.test_slice_actor = vtkImageActor()
                 self.test_slice_actor.GetMapper().SetInputData(vtk_slice_image)
-                self.test_slice_actor.SetDisplayExtent(0, cols-1, 0, rows-1, 0, 0)
+                # Position the actor at the correct Z location
+                # ImagePositionPatient gives X,Y,Z of the center of the first voxel of THAT slice
+                # For simplicity, using the Z from the volume origin + offset.
+                # This assumes Z is the third component of origin and spacing.
+                # Correct positioning requires using ImagePositionPatient from the DICOM header for that slice.
+                # For this test, we approximate its position.
+                # The actor's origin is its lower-left corner.
+                # We want the slice (whose origin is 0,0,0) to be positioned correctly in world space.
+                # World_X = BaseOrigin_X + ColIndex * ColSpacing
+                # World_Y = BaseOrigin_Y + RowIndex * RowSpacing
+                # World_Z = BaseOrigin_Z + SliceIndex * SliceThickness
+                # The vtkImageData for the slice actor has its own origin.
+                # Let's set the actor's position.
+                # Z-coordinate of the center of the slice in the patient coordinate system
+                slice_z_world = base_origin[2] + (central_slice_idx - (volume_data_full_zyx.shape[0] / 2.0)) * slice_thickness \
+                                + slice_thickness / 2.0 # Center of the slice
+                # The actor's position is its origin. If image data origin is 0,0,0 then actor position is world pos.
+                self.test_slice_actor.SetPosition(base_origin[0], base_origin[1], slice_z_world)
 
-                slice_min = np.min(slice_2d_data_zyx)
-                slice_max = np.max(slice_2d_data_zyx)
-                self.test_slice_actor.GetProperty().SetColorWindow(slice_max - slice_min)
-                self.test_slice_actor.GetProperty().SetColorLevel((slice_max + slice_min) / 2.0)
+                slice_min_val = np.min(slice_2d_data_zyx)
+                slice_max_val = np.max(slice_2d_data_zyx)
+                self.test_slice_actor.GetProperty().SetColorWindow(slice_max_val - slice_min_val if (slice_max_val - slice_min_val) > 1e-6 else 1.0)
+                self.test_slice_actor.GetProperty().SetColorLevel((slice_max_val + slice_min_val) / 2.0)
 
                 self.ren.AddActor(self.test_slice_actor)
-                logger.info(f"3D View Test: Added vtkImageActor for slice {central_slice_idx}. Data range: {slice_min:.2f}-{slice_max:.2f}")
+                logger.info(f"3D View Test: Added vtkImageActor for slice {central_slice_idx}. Data range: {slice_min_val:.2f}-{slice_max_val:.2f}. Position: {self.test_slice_actor.GetPosition()}")
                 try:
                     slice_actor_bounds = self.test_slice_actor.GetBounds()
                     logger.info(f"3D View Test: Slice actor bounds: {slice_actor_bounds}")
@@ -195,41 +205,43 @@ class DicomViewer3DWidget(QWidget):
             logger.warning("3D View Test: Clipped volume data not suitable for extracting a 2D slice.")
         # --- END OF VTK IMAGE PLANE TEST ---
 
-            color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
+        # Setup for 3D volume (properties will be set, but actor might not be added)
+        color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
 
-            logger.info("3D View: Applying AGGRESSIVE simplified color transfer function.")
-            color_func.AddRGBPoint(min_hu_display, 0.2, 0.2, 0.2) # Dark gray
-            color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9) # Light gray
+        logger.info("3D View: Applying AGGRESSIVE simplified color transfer function.")
+        color_func.AddRGBPoint(min_hu_display, 0.2, 0.2, 0.2)
+        color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9)
 
-            logger.info("3D View: Applying AGGRESSIVE simplified opacity transfer function for basic visibility test.")
-            opacity_func.AddPoint(min_hu_display, 0.0)  # min_hu_display is -1024.0
-            opacity_func.AddPoint(-300.0, 0.0)          # Air-like regions mostly transparent
-            opacity_func.AddPoint(-299.0, 0.25)         # Sharp step to make soft tissues visible
-            opacity_func.AddPoint(max_hu_display, 0.25) # max_hu_display is 3000.0. All tissue/bone has some opacity.
+        logger.info("3D View: Applying AGGRESSIVE simplified opacity transfer function for basic visibility test.")
+        opacity_func.AddPoint(min_hu_display, 0.0)
+        opacity_func.AddPoint(-300.0, 0.0)
+        opacity_func.AddPoint(-299.0, 0.25)
+        opacity_func.AddPoint(max_hu_display, 0.25)
 
-            self.volume_property = vtkVolumeProperty(); self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
-            self.volume_property.SetInterpolationTypeToLinear();
-            logger.info("3D View: Turning OFF shading for basic visibility test.")
-            self.volume_property.ShadeOff()
-            self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
+        if not hasattr(self, 'volume_property') or self.volume_property is None:
+             self.volume_property = vtkVolumeProperty()
+        self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
+        self.volume_property.SetInterpolationTypeToLinear();
+        logger.info("3D View: Turning OFF shading for basic visibility test.")
+        self.volume_property.ShadeOff() # Turn off shading
+        self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
 
-            # Temporarily disable 3D volume rendering by not re-creating/adding self.volume_actor
-            # volume_mapper = vtkSmartVolumeMapper(); volume_mapper.SetInputData(vtk_volume_image) # vtk_volume_image is 3D
-            # self.volume_actor = vtkVolume(); self.volume_actor.SetMapper(volume_mapper); self.volume_actor.SetProperty(self.volume_property)
-            # self.ren.AddVolume(self.volume_actor) # << THIS LINE IS EFFECTIVELY COMMENTED OUT
-            # try:
-            #     bounds = self.volume_actor.GetBounds()
-            #     logger.info(f"3D View: Volume actor bounds: {bounds}")
-            # except Exception as e_bounds:
-            #     logger.warning(f"3D View: Could not get volume actor bounds: {e_bounds}")
-            # logger.info("DICOM volume actor added.") # This log might be misleading now
-            logger.info("3D View: Main volume rendering temporarily bypassed for 2D slice test.")
+        # Create or update the 3D volume_actor, but DO NOT add it to the renderer for this test.
+        if self.volume_actor is None:
+            volume_mapper = vtkSmartVolumeMapper()
+            volume_mapper.SetInputData(vtk_volume_image) # vtk_volume_image is the full 3D data
+            self.volume_actor = vtkVolume()
+            self.volume_actor.SetMapper(volume_mapper)
+            self.volume_actor.SetProperty(self.volume_property)
+            logger.info("3D View: self.volume_actor (3D) created but NOT added to renderer.")
+        else:
+            # If it exists, ensure its mapper has the correct input and properties are updated
+            self.volume_actor.GetMapper().SetInputData(vtk_volume_image)
+            self.volume_actor.SetProperty(self.volume_property)
+            logger.info("3D View: self.volume_actor (3D) updated but NOT added to renderer.")
+        # self.ren.AddVolume(self.volume_actor) # << THIS LINE IS INTENTIONALLY BYPASSED FOR THE 2D SLICE TEST
 
-        except Exception as e_vol:
-            logger.error(f"Error during 3D view update (possibly volume or slice actor): {e_vol}", exc_info=True)
-            if self.volume_actor: self.ren.RemoveVolume(self.volume_actor); self.volume_actor = None
-
-
+        # Add other actors (tumor, OARs) as before
         if tumor_mask_full_zyx is not None and np.any(tumor_mask_full_zyx):
             self.tumor_actor = self._create_surface_actor_from_mask(
                 tumor_mask_full_zyx, image_properties, color=(1.0, 0.0, 0.0), opacity=0.4
@@ -261,7 +273,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Volume, Tumor, OARs, Test Slice).") # Updated log
+        logger.info("3D View updated (Volume, Tumor, OARs, Test Slice).")
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
@@ -322,39 +334,25 @@ class DicomViewer3DWidget(QWidget):
         logger.info("Dose isosurfaces update process finished.")        
 
     def _planner_coords_to_patient_world_coords(self, planner_coords_crs: np.ndarray) -> Optional[np.ndarray]:
-        """
-        Converts planner grid coordinates (cols,rows,slices indices) to patient world coordinates (LPS mm).
-        Requires self.image_properties_for_viz to be set.
-        """
         if self.image_properties_for_viz is None:
             logger.error("Cannot convert planner to world coords: image_properties_for_viz not set.")
             return None
         
-        col_idx, row_idx, slice_idx = planner_coords_crs # These are 0-based indices
+        col_idx, row_idx, slice_idx = planner_coords_crs
 
-        # Spacing from image_properties: [row_spacing, col_spacing], slice_thickness
-        # For world coord calculation: col_spacing (x), row_spacing (y), slice_spacing (z)
         col_spacing = self.image_properties_for_viz.get('pixel_spacing', [1.0,1.0])[1]
         row_spacing = self.image_properties_for_viz.get('pixel_spacing', [1.0,1.0])[0]
-        # Slice spacing calculation needs to be robust. If slices are contiguous, it's SliceThickness.
-        # If there are gaps, it's the distance between ImagePositionPatient[2] of adjacent slices.
-        # For simplicity, assuming contiguous for now.
         slice_spacing = self.image_properties_for_viz.get('slice_thickness', 1.0)
         
-        # Voxel coordinates in the image frame, scaled by spacing
-        # These are displacements from the origin of the first voxel in each image axis direction
         img_x_disp = col_idx * col_spacing
         img_y_disp = row_idx * row_spacing
-        img_z_disp = slice_idx * slice_spacing # This assumes slice_idx corresponds to Z-depth step
+        img_z_disp = slice_idx * slice_spacing
         
         scaled_img_coords_vec = np.array([img_x_disp, img_y_disp, img_z_disp], dtype=float)
         
-        # Orientation matrix (image axes in patient coordinate system)
-        # Columns are [Ximg_in_Pat, Yimg_in_Pat, Zimg_in_Pat]
         orientation_matrix = np.array(self.image_properties_for_viz.get('orientation_matrix_3x3', np.eye(3)))
-        origin_patient_lps = np.array(self.image_properties_for_viz.get('origin', [0.0,0.0,0.0])) # LPS of first voxel center
+        origin_patient_lps = np.array(self.image_properties_for_viz.get('origin', [0.0,0.0,0.0]))
         
-        # P_world = Origin_LPS + OrientationMatrix @ ScaledImageCoords
         world_coords_lps = origin_patient_lps + orientation_matrix @ scaled_img_coords_vec
 
         logger.debug(f"Planner coords (c,r,s): {planner_coords_crs} -> World coords (LPS): {world_coords_lps}")
@@ -367,11 +365,10 @@ class DicomViewer3DWidget(QWidget):
             if self.vtkWidget.GetRenderWindow(): self.vtkWidget.GetRenderWindow().Render()
             return
 
-        beam_directions_planner = beam_viz_data.get("beam_directions", []) # Unit vectors in planner's CRS (usually same as patient if no 4D deformation)
+        beam_directions_planner = beam_viz_data.get("beam_directions", [])
         beam_weights = beam_viz_data.get("beam_weights", np.array([]))
-        # source_positions_planner_coords are in planner's voxel indices (col,row,slice)
         source_positions_planner_vox = beam_viz_data.get("source_positions_planner_coords", [])
-        isocenter_planner_vox = np.array(beam_viz_data.get("isocenter_planner_coords", [0.0,0.0,0.0])) # Voxel indices
+        isocenter_planner_vox = np.array(beam_viz_data.get("isocenter_planner_coords", [0.0,0.0,0.0]))
 
         isocenter_world_lps = self._planner_coords_to_patient_world_coords(isocenter_planner_vox)
         if isocenter_world_lps is None:
@@ -382,7 +379,7 @@ class DicomViewer3DWidget(QWidget):
 
         for i, direction_vec_planner in enumerate(beam_directions_planner):
             weight = beam_weights[i] if i < len(beam_weights) else 0
-            if weight < 0.01: continue # Threshold for displaying beam
+            if weight < 0.01: continue
 
             source_pos_planner_vox_np = np.array(source_positions_planner_vox[i])
             source_pos_world_lps = self._planner_coords_to_patient_world_coords(source_pos_planner_vox_np)
@@ -400,7 +397,7 @@ class DicomViewer3DWidget(QWidget):
             intensity = weight / max_weight
             actor.GetProperty().SetColor(intensity, 1.0 - intensity, 0.0)
             actor.GetProperty().SetLineWidth(1.0 + intensity * 3.0)
-            actor.GetProperty().SetOpacity(0.6 + intensity * 0.4) # Make active beams more opaque
+            actor.GetProperty().SetOpacity(0.6 + intensity * 0.4)
 
             self.ren.AddActor(actor); self.beam_visualization_actors.append(actor)
             logger.debug(f"Beam {i}: src_world={source_pos_world_lps}, iso_world={isocenter_world_lps}, weight={weight:.2f}")
@@ -417,7 +414,8 @@ class DicomViewer3DWidget(QWidget):
     def clear_view(self):
         logger.info("Clearing 3D viewer (volume, tumor, OARs, beams, and dose isosurfaces).")
         if self.volume_actor is not None: self.ren.RemoveVolume(self.volume_actor); self.volume_actor = None
-        if self.tumor_actor is not None: self.ren.RemoveActor(self.tumor_actor); self.tumor_actor = None # Line 393 in previous trace
+        if self.test_slice_actor is not None: self.ren.RemoveActor(self.test_slice_actor); self.test_slice_actor = None
+        if self.tumor_actor is not None: self.ren.RemoveActor(self.tumor_actor); self.tumor_actor = None
         self._clear_oar_actors()
         self._clear_dose_isosurfaces()
         self._clear_beam_visualization() 
@@ -432,12 +430,11 @@ if __name__ == '__main__':
     dummy_tumor_mask_zyx = np.zeros(vol_shape_zyx, dtype=bool); dummy_tumor_mask_zyx[20:30, 25:35, 25:35] = True
     dummy_oar_masks_zyx = {"OAR1": np.zeros(vol_shape_zyx, dtype=bool)}; dummy_oar_masks_zyx["OAR1"][15:25, 10:20, 40:50] = True
     
-    # Example image_properties - crucial for correct VTK visualization
     dummy_image_properties = {
-        'pixel_spacing': [0.8, 0.9], # row_sp=0.8, col_sp=0.9
-        'slice_thickness': 2.5,      # slice_thickness_mm
-        'origin': [-100.0, -120.0, -80.0], # Example LPS origin
-        'orientation_matrix_3x3': np.eye(3).tolist() # Simplest: identity orientation
+        'pixel_spacing': [0.8, 0.9],
+        'slice_thickness': 2.5,
+        'origin': [-100.0, -120.0, -80.0],
+        'orientation_matrix_3x3': np.eye(3).tolist()
     }
     
     viewer3d.update_volume(dummy_volume_data_zyx,
@@ -445,8 +442,7 @@ if __name__ == '__main__':
                            tumor_mask_full_zyx=dummy_tumor_mask_zyx, 
                            oar_masks_full_zyx=dummy_oar_masks_zyx)
     
-    # Test dose
-    dose_shape_crs = (vol_shape_zyx[2], vol_shape_zyx[1], vol_shape_zyx[0]) # (cols,rows,slices)
+    dose_shape_crs = (vol_shape_zyx[2], vol_shape_zyx[1], vol_shape_zyx[0])
     dummy_dose_crs = np.zeros(dose_shape_crs, dtype=np.float32)
     cx,cy,cz = [d//2 for d in dose_shape_crs]; radius_dose = min(cx,cy,cz)//2
     x,y,z = np.ogrid[:dose_shape_crs[0], :dose_shape_crs[1], :dose_shape_crs[2]]
@@ -454,15 +450,13 @@ if __name__ == '__main__':
     dummy_dose_crs[mask_sphere_crs] = 60.0; dummy_dose_crs += np.random.rand(*dose_shape_crs)*10
     viewer3d._update_dose_isosurfaces(dummy_dose_crs, dummy_image_properties, isovalues_list=[20.0, 40.0, 55.0])
 
-    # Test beam visualization
-    # Planner coords (c,r,s) for isocenter and sources
     planner_grid_size_crs = dose_shape_crs 
     isocenter_planner_vox_test = np.array([planner_grid_size_crs[0]//2, planner_grid_size_crs[1]//2, planner_grid_size_crs[2]//2])
     
     beam_viz_test_data = {
-        "beam_directions": [(1,0,0), (0,1,0), (-1,0,0), (0,-1,0), (0.707, 0.707, 0)], # Example directions
+        "beam_directions": [(1,0,0), (0,1,0), (-1,0,0), (0,-1,0), (0.707, 0.707, 0)],
         "beam_weights": np.array([1.0, 0.8, 0.6, 0.4, 0.9]),
-        "source_positions_planner_coords": [ # Sources far out along negative direction from isocenter
+        "source_positions_planner_coords": [
             (isocenter_planner_vox_test - np.array([1,0,0])*100).tolist(),
             (isocenter_planner_vox_test - np.array([0,1,0])*100).tolist(),
             (isocenter_planner_vox_test - np.array([-1,0,0])*100).tolist(),
@@ -476,3 +470,5 @@ if __name__ == '__main__':
     viewer3d.resize(800, 600)
     viewer3d.show()
     sys.exit(app.exec_())
+
+[end of rad-ui-upd30/QRadPlannerApp/ui/dicom_viewer_3d.py]
