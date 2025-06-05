@@ -15,16 +15,14 @@ from vtkmodules.vtkRenderingCore import (
     vtkColorTransferFunction,
     vtkPolyDataMapper,
     vtkActor,
-    vtkImageActor, # Added for 2D slice test
+    vtkImageActor,
 )
-from vtkmodules.vtkImagingCore import vtkImageShiftScale, vtkImageReslice # Added vtkImageReslice for 2D slice test
-# vtkImageMapper is usually implicitly handled by vtkImageActor or needs vtkDataSetMapper for some scenarios.
-# For vtkImageActor, a vtkImageSliceMapper can be used, or it might default.
-# Let's try with vtkImageActor's default capabilities first.
+from vtkmodules.vtkImagingCore import vtkImageShiftScale, vtkImageReslice
 from vtkmodules.vtkFiltersCore import vtkMarchingCubes
-from vtkmodules.vtkFiltersGeneral import vtkDiscreteMarchingCubes # Good for binary masks
-from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylinderSource # For beam viz
-from vtkmodules.vtkCommonMath import vtkMatrix4x4 # For transformations (not directly used in current _planner_coords_to_patient_world_coords but good to have if needed)
+from vtkmodules.vtkFiltersGeneral import vtkDiscreteMarchingCubes
+from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylinderSource, vtkSphereSource
+from vtkmodules.vtkCommonMath import vtkMatrix4x4
+from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
 
 
 from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkSmartVolumeMapper 
@@ -55,11 +53,22 @@ class DicomViewer3DWidget(QWidget):
         self.oar_actors: Dict[str, vtkActor] = {}
         self.dose_isosurface_actors: List[vtkActor] = []
         self.beam_visualization_actors: List[vtkActor] = []
-        self.image_properties_for_viz: Optional[Dict] = None # Store for transformations
-        self.test_slice_actor: Optional[vtkImageActor] = None # For the 2D slice test
+        self.image_properties_for_viz: Optional[Dict] = None
+        self.test_slice_actor: Optional[vtkImageActor] = None
+        self.test_sphere_actor: Optional[vtkActor] = None
+
 
         self.vtkWidget.Initialize()
         logger.info("DicomViewer3DWidget initialized.")
+
+        logger.info("3D View: Setting vtkInteractorStyleTrackballCamera.")
+        style = vtkInteractorStyleTrackballCamera()
+        interactor = self.vtkWidget.GetRenderWindow().GetInteractor()
+        if interactor:
+            interactor.SetInteractorStyle(style)
+        else:
+            logger.error("3D View: Failed to get interactor to set style.")
+
 
     def _numpy_to_vtkimage(self, np_array_s_r_c: np.ndarray, image_properties: Optional[Dict] = None) -> vtkImageData:
         vtk_image = vtkImageData()
@@ -112,154 +121,114 @@ class DicomViewer3DWidget(QWidget):
                       tumor_mask_full_zyx: Optional[np.ndarray] = None,   # (s,r,c)
                       oar_masks_full_zyx: Optional[Dict[str, np.ndarray]] = None): # (s,r,c)
         
+        # --- START OF MODIFIED SECTION FOR SPHERE TEST ---
+        logger.info("3D View: update_volume called. Clearing existing test actors and main volume.")
+        if hasattr(self, 'test_sphere_actor') and self.test_sphere_actor is not None:
+            self.ren.RemoveActor(self.test_sphere_actor)
+            self.test_sphere_actor = None
+        if hasattr(self, 'test_slice_actor') and self.test_slice_actor is not None:
+            self.ren.RemoveActor(self.test_slice_actor)
+            self.test_slice_actor = None
+
+        if self.volume_actor is not None: # Main 3D volume actor
+            self.ren.RemoveVolume(self.volume_actor)
+            self.volume_actor = None
+        if self.tumor_actor is not None: # Existing tumor surface
+            self.ren.RemoveActor(self.tumor_actor)
+            self.tumor_actor = None
+        self._clear_oar_actors()
+        self._clear_dose_isosurfaces()
+        self._clear_beam_visualization()
+        # --- END OF EXPLICIT CLEARING FOR SPHERE TEST ---
+
         self.image_properties_for_viz = image_properties
 
-        logger.info("Updating 3D Viewer (Volume, Tumor, OARs)...")
-        if self.volume_actor is not None: self.ren.RemoveVolume(self.volume_actor); self.volume_actor = None
-        if self.test_slice_actor is not None: self.ren.RemoveActor(self.test_slice_actor); self.test_slice_actor = None # Clear previous slice actor
-        if self.tumor_actor is not None: self.ren.RemoveActor(self.tumor_actor); self.tumor_actor = None
-        self._clear_oar_actors()
-        self._clear_beam_visualization()
+        # Bypassing data checks for sphere test, assuming it can always be added
+        # if volume_data_full_zyx is None or image_properties is None:
+        #     logger.info("No volume data or properties to display in 3D view.")
+        #     if self.vtkWidget.GetRenderWindow():
+        #         self.ren.ResetCamera()
+        #         self.vtkWidget.GetRenderWindow().Render()
+        #     return
 
-        if volume_data_full_zyx is None or image_properties is None:
-            logger.info("No volume data or properties to display in 3D view.")
-            if self.vtkWidget.GetRenderWindow():
-                self.ren.ResetCamera()
-                self.vtkWidget.GetRenderWindow().Render()
-            return
+        # --- START OF VTK SPHERE TEST ---
+        logger.info("3D View Test: Attempting to display a simple vtkSphereSource.")
+        sphereSource = vtkSphereSource()
+        sphereSource.SetCenter(0.0, 0.0, 0.0)
+        sphereSource.SetRadius(50.0)
+        sphereSource.Update()
 
-        # Clipping and original vtk_volume_image creation (needed for slice test too)
-        logger.info(f"3D View: Original full volume data range: {volume_data_full_zyx.min():.2f} to {volume_data_full_zyx.max():.2f}")
-        min_hu_display = -1024.0
-        max_hu_display = 3000.0
-        volume_data_clipped_zyx = np.clip(volume_data_full_zyx, min_hu_display, max_hu_display)
-        logger.info(f"3D View: Clipped volume data range for display: {volume_data_clipped_zyx.min():.2f} to {volume_data_clipped_zyx.max():.2f}")
+        mapper = vtkPolyDataMapper()
+        mapper.SetInputConnection(sphereSource.GetOutputPort())
 
-        vtk_volume_image = self._numpy_to_vtkimage(volume_data_clipped_zyx.astype(np.float32), image_properties)
+        self.test_sphere_actor = vtkActor()
+        self.test_sphere_actor.SetMapper(mapper)
+        self.test_sphere_actor.GetProperty().SetColor(1.0, 0.0, 0.0) # Red
+
+        self.ren.AddActor(self.test_sphere_actor)
+        logger.info("3D View Test: Added vtkSphereSource actor.")
+
         try:
-            scalar_range = vtk_volume_image.GetScalarRange()
-            logger.info(f"3D View: VTK Volume Image Scalar Range: {scalar_range[0]:.2f} to {scalar_range[1]:.2f}")
-        except Exception as e_sr:
-            logger.warning(f"3D View: Could not get scalar range from vtk_volume_image: {e_sr}")
+            bounds = self.test_sphere_actor.GetBounds()
+            logger.info(f"3D View Test: Sphere actor bounds: {bounds}")
+        except Exception as e_bounds:
+            logger.warning(f"3D View Test: Could not get sphere_actor bounds: {e_bounds}")
+        # --- END OF VTK SPHERE TEST ---
 
-        # --- START OF VTK IMAGE PLANE TEST ---
-        logger.info("3D View Test: Attempting to display a central 2D slice as vtkImageActor.")
-        if volume_data_clipped_zyx is not None and volume_data_clipped_zyx.ndim == 3 and volume_data_clipped_zyx.shape[0] > 0:
-            central_slice_idx = volume_data_clipped_zyx.shape[0] // 2
-            slice_2d_data_zyx = volume_data_clipped_zyx[central_slice_idx, :, :]
+        # The following original volume rendering code is effectively bypassed
+        # because self.ren.AddVolume(self.volume_actor) will not be called.
+        # Properties are set in case it's re-enabled later.
+        if volume_data_full_zyx is not None and image_properties is not None:
+            logger.info(f"3D View: Original full volume data range (for reference): {volume_data_full_zyx.min():.2f} to {volume_data_full_zyx.max():.2f}")
+            min_hu_display = -1024.0
+            max_hu_display = 3000.0
+            volume_data_clipped_zyx = np.clip(volume_data_full_zyx, min_hu_display, max_hu_display)
+            logger.info(f"3D View: Clipped volume data range (for reference): {volume_data_clipped_zyx.min():.2f} to {volume_data_clipped_zyx.max():.2f}")
 
-            vtk_slice_image = vtkImageData()
-            rows, cols = slice_2d_data_zyx.shape
-            vtk_slice_image.SetDimensions(cols, rows, 1)
+            vtk_volume_image = self._numpy_to_vtkimage(volume_data_clipped_zyx.astype(np.float32), image_properties)
+            try:
+                scalar_range = vtk_volume_image.GetScalarRange()
+                logger.info(f"3D View: VTK Volume Image Scalar Range (for reference): {scalar_range[0]:.2f} to {scalar_range[1]:.2f}")
+            except Exception as e_sr:
+                logger.warning(f"3D View: Could not get scalar range from vtk_volume_image (for reference): {e_sr}")
 
-            if image_properties:
-                col_spacing = image_properties.get('pixel_spacing', [1.0,1.0])[1]
-                row_spacing = image_properties.get('pixel_spacing', [1.0,1.0])[0]
-                vtk_slice_image.SetSpacing(col_spacing, row_spacing, 1.0)
+            color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
 
-                base_origin = image_properties.get('origin', [0.0, 0.0, 0.0])
-                slice_thickness = image_properties.get('slice_thickness', 1.0)
-                # For vtkImageActor, its position can be set. The origin of vtkImageData for the slice can be simple.
-                vtk_slice_image.SetOrigin(0,0,0) # Keep slice origin simple; actor will be positioned.
+            logger.info("3D View: Applying AGGRESSIVE simplified color transfer function (for bypassed 3D volume).")
+            color_func.AddRGBPoint(min_hu_display, 0.2, 0.2, 0.2)
+            color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9)
 
+            logger.info("3D View: Applying AGGRESSIVE simplified opacity transfer function for basic visibility test (for bypassed 3D volume).")
+            opacity_func.AddPoint(min_hu_display, 0.0)
+            opacity_func.AddPoint(-300.0, 0.0)
+            opacity_func.AddPoint(-299.0, 0.25)
+            opacity_func.AddPoint(max_hu_display, 0.25)
 
-                slice_vtk_array = numpy_support.numpy_to_vtk(num_array=slice_2d_data_zyx.ravel(order='F'), deep=True)
-                vtk_slice_image.GetPointData().SetScalars(slice_vtk_array)
+            if not hasattr(self, 'volume_property') or self.volume_property is None:
+                 self.volume_property = vtkVolumeProperty()
+            self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
+            self.volume_property.SetInterpolationTypeToLinear();
+            logger.info("3D View: Turning OFF shading for basic visibility test (for bypassed 3D volume).")
+            self.volume_property.ShadeOff()
+            self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
 
-                self.test_slice_actor = vtkImageActor()
-                self.test_slice_actor.GetMapper().SetInputData(vtk_slice_image)
-                # Position the actor at the correct Z location
-                # ImagePositionPatient gives X,Y,Z of the center of the first voxel of THAT slice
-                # For simplicity, using the Z from the volume origin + offset.
-                # This assumes Z is the third component of origin and spacing.
-                # Correct positioning requires using ImagePositionPatient from the DICOM header for that slice.
-                # For this test, we approximate its position.
-                # The actor's origin is its lower-left corner.
-                # We want the slice (whose origin is 0,0,0) to be positioned correctly in world space.
-                # World_X = BaseOrigin_X + ColIndex * ColSpacing
-                # World_Y = BaseOrigin_Y + RowIndex * RowSpacing
-                # World_Z = BaseOrigin_Z + SliceIndex * SliceThickness
-                # The vtkImageData for the slice actor has its own origin.
-                # Let's set the actor's position.
-                # Z-coordinate of the center of the slice in the patient coordinate system
-                slice_z_world = base_origin[2] + (central_slice_idx - (volume_data_full_zyx.shape[0] / 2.0)) * slice_thickness \
-                                + slice_thickness / 2.0 # Center of the slice
-                # The actor's position is its origin. If image data origin is 0,0,0 then actor position is world pos.
-                self.test_slice_actor.SetPosition(base_origin[0], base_origin[1], slice_z_world)
-
-                slice_min_val = np.min(slice_2d_data_zyx)
-                slice_max_val = np.max(slice_2d_data_zyx)
-                self.test_slice_actor.GetProperty().SetColorWindow(slice_max_val - slice_min_val if (slice_max_val - slice_min_val) > 1e-6 else 1.0)
-                self.test_slice_actor.GetProperty().SetColorLevel((slice_max_val + slice_min_val) / 2.0)
-
-                self.ren.AddActor(self.test_slice_actor)
-                logger.info(f"3D View Test: Added vtkImageActor for slice {central_slice_idx}. Data range: {slice_min_val:.2f}-{slice_max_val:.2f}. Position: {self.test_slice_actor.GetPosition()}")
-                try:
-                    slice_actor_bounds = self.test_slice_actor.GetBounds()
-                    logger.info(f"3D View Test: Slice actor bounds: {slice_actor_bounds}")
-                except Exception as e_sab:
-                    logger.warning(f"3D View Test: Could not get slice_actor bounds: {e_sab}")
+            # Ensure 3D volume_actor is correctly managed if it exists from a previous call
+            if self.volume_actor is None:
+                volume_mapper = vtkSmartVolumeMapper()
+                if vtk_volume_image: volume_mapper.SetInputData(vtk_volume_image)
+                self.volume_actor = vtkVolume()
+                self.volume_actor.SetMapper(volume_mapper)
+                self.volume_actor.SetProperty(self.volume_property)
+                logger.info("3D View: self.volume_actor (3D) created but NOT added to renderer.")
             else:
-                logger.warning("3D View Test: No image_properties, cannot set spacing/origin for test slice actor.")
-        else:
-            logger.warning("3D View Test: Clipped volume data not suitable for extracting a 2D slice.")
-        # --- END OF VTK IMAGE PLANE TEST ---
+                if self.volume_actor.GetMapper(): self.volume_actor.GetMapper().SetInputData(vtk_volume_image)
+                self.volume_actor.SetProperty(self.volume_property)
+                logger.info("3D View: self.volume_actor (3D) properties updated but NOT added to renderer.")
+            # self.ren.AddVolume(self.volume_actor) # << THIS LINE IS INTENTIONALLY BYPASSED
 
-        # Setup for 3D volume (properties will be set, but actor might not be added)
-        color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
-
-        logger.info("3D View: Applying AGGRESSIVE simplified color transfer function.")
-        color_func.AddRGBPoint(min_hu_display, 0.2, 0.2, 0.2)
-        color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9)
-
-        logger.info("3D View: Applying AGGRESSIVE simplified opacity transfer function for basic visibility test.")
-        opacity_func.AddPoint(min_hu_display, 0.0)
-        opacity_func.AddPoint(-300.0, 0.0)
-        opacity_func.AddPoint(-299.0, 0.25)
-        opacity_func.AddPoint(max_hu_display, 0.25)
-
-        if not hasattr(self, 'volume_property') or self.volume_property is None:
-             self.volume_property = vtkVolumeProperty()
-        self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
-        self.volume_property.SetInterpolationTypeToLinear();
-        logger.info("3D View: Turning OFF shading for basic visibility test.")
-        self.volume_property.ShadeOff() # Turn off shading
-        self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
-
-        # Create or update the 3D volume_actor, but DO NOT add it to the renderer for this test.
-        if self.volume_actor is None:
-            volume_mapper = vtkSmartVolumeMapper()
-            volume_mapper.SetInputData(vtk_volume_image) # vtk_volume_image is the full 3D data
-            self.volume_actor = vtkVolume()
-            self.volume_actor.SetMapper(volume_mapper)
-            self.volume_actor.SetProperty(self.volume_property)
-            logger.info("3D View: self.volume_actor (3D) created but NOT added to renderer.")
-        else:
-            # If it exists, ensure its mapper has the correct input and properties are updated
-            self.volume_actor.GetMapper().SetInputData(vtk_volume_image)
-            self.volume_actor.SetProperty(self.volume_property)
-            logger.info("3D View: self.volume_actor (3D) updated but NOT added to renderer.")
-        # self.ren.AddVolume(self.volume_actor) # << THIS LINE IS INTENTIONALLY BYPASSED FOR THE 2D SLICE TEST
-
-        # Add other actors (tumor, OARs) as before
-        if tumor_mask_full_zyx is not None and np.any(tumor_mask_full_zyx):
-            self.tumor_actor = self._create_surface_actor_from_mask(
-                tumor_mask_full_zyx, image_properties, color=(1.0, 0.0, 0.0), opacity=0.4
-            )
-            if self.tumor_actor: self.ren.AddActor(self.tumor_actor); logger.info("Tumor mask actor added.")
-
-        if oar_masks_full_zyx:
-            oar_colors = [(0,1,0), (0,0,1), (1,1,0), (0,1,1), (1,0,1), (0.5,0.5,0), (0,0.5,0.5), (0.5,0,0.5)]
-            color_idx = 0
-            for name, oar_mask_zyx_data in oar_masks_full_zyx.items():
-                if oar_mask_zyx_data is None or not np.any(oar_mask_zyx_data): continue
-                oar_actor = self._create_surface_actor_from_mask(
-                    oar_mask_zyx_data, image_properties,
-                    color=oar_colors[color_idx % len(oar_colors)], opacity=0.25
-                )
-                if oar_actor:
-                    self.ren.AddActor(oar_actor); self.oar_actors[name] = oar_actor
-                    logger.info(f"OAR actor for '{name}' added."); color_idx += 1
+        # Tumor and OAR actors are not added for this sphere test to keep it simple
+        # if tumor_mask_full_zyx is not None and np.any(tumor_mask_full_zyx): ...
+        # if oar_masks_full_zyx: ...
         
         if self.vtkWidget.GetRenderWindow():
             self.ren.ResetCamera()
@@ -273,7 +242,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Volume, Tumor, OARs, Test Slice).")
+        logger.info("3D View updated (Sphere Test).")
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
@@ -287,7 +256,7 @@ class DicomViewer3DWidget(QWidget):
             self.ren.RemoveActor(actor)
         self.dose_isosurface_actors.clear()
 
-    def _update_dose_isosurfaces(self, dose_volume_full_crs: Optional[np.ndarray], # Dose is (cols,rows,slices)
+    def _update_dose_isosurfaces(self, dose_volume_full_crs: Optional[np.ndarray],
                                  image_properties: Optional[Dict],
                                  isovalues_list: Optional[List[float]] = None):
         logger.info("Updating dose isosurfaces...")
@@ -300,7 +269,7 @@ class DicomViewer3DWidget(QWidget):
 
         try:
             logger.debug(f"Dose volume for isosurfaces shape (c,r,s): {dose_volume_full_crs.shape}, dtype: {dose_volume_full_crs.dtype}")
-            dose_volume_full_zyx = np.transpose(dose_volume_full_crs, (2, 1, 0)).astype(np.float32) # Transpose to (s,r,c)
+            dose_volume_full_zyx = np.transpose(dose_volume_full_crs, (2, 1, 0)).astype(np.float32)
             dose_vtk_image = self._numpy_to_vtkimage(dose_volume_full_zyx, image_properties)
 
             colors_vtk_dose = [
@@ -415,6 +384,7 @@ class DicomViewer3DWidget(QWidget):
         logger.info("Clearing 3D viewer (volume, tumor, OARs, beams, and dose isosurfaces).")
         if self.volume_actor is not None: self.ren.RemoveVolume(self.volume_actor); self.volume_actor = None
         if self.test_slice_actor is not None: self.ren.RemoveActor(self.test_slice_actor); self.test_slice_actor = None
+        if self.test_sphere_actor is not None: self.ren.RemoveActor(self.test_sphere_actor); self.test_sphere_actor = None
         if self.tumor_actor is not None: self.ren.RemoveActor(self.tumor_actor); self.tumor_actor = None
         self._clear_oar_actors()
         self._clear_dose_isosurfaces()
