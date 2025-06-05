@@ -470,5 +470,3 @@ if __name__ == '__main__':
     viewer3d.resize(800, 600)
     viewer3d.show()
     sys.exit(app.exec_())
-
-[end of rad-ui-upd30/QRadPlannerApp/ui/dicom_viewer_3d.py]
