@@ -20,7 +20,7 @@ from vtkmodules.vtkRenderingCore import (
 from vtkmodules.vtkImagingCore import vtkImageShiftScale, vtkImageReslice
 from vtkmodules.vtkFiltersCore import vtkMarchingCubes
 from vtkmodules.vtkFiltersGeneral import vtkDiscreteMarchingCubes
-from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylinderSource, vtkSphereSource
+from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylinderSource, vtkSphereSource # Keep SphereSource for now, though unused
 from vtkmodules.vtkCommonMath import vtkMatrix4x4
 from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
 
@@ -58,7 +58,7 @@ class DicomViewer3DWidget(QWidget):
         self.test_sphere_actor: Optional[vtkActor] = None
 
 
-        self.vtkWidget.Initialize()
+        self.vtkWidget.Initialize() # Initialize QVTKRenderWindowInteractor
         logger.info("DicomViewer3DWidget initialized.")
 
         logger.info("3D View: Setting vtkInteractorStyleTrackballCamera.")
@@ -66,6 +66,8 @@ class DicomViewer3DWidget(QWidget):
         interactor = self.vtkWidget.GetRenderWindow().GetInteractor()
         if interactor:
             interactor.SetInteractorStyle(style)
+            # logger.info("3D View: Starting QVTKRenderWindowInteractor event loop via self.vtkWidget.Start().")
+            # self.vtkWidget.Start() # This blocks if called here in a typical Qt app structure. Usually called by app.exec_()
         else:
             logger.error("3D View: Failed to get interactor to set style.")
 
@@ -121,84 +123,87 @@ class DicomViewer3DWidget(QWidget):
                       tumor_mask_full_zyx: Optional[np.ndarray] = None,   # (s,r,c)
                       oar_masks_full_zyx: Optional[Dict[str, np.ndarray]] = None): # (s,r,c)
         
-        # --- START OF MODIFIED SECTION FOR SPHERE TEST ---
-        logger.info("3D View: update_volume called. Clearing existing test actors and main volume.")
-        if hasattr(self, 'test_sphere_actor') and self.test_sphere_actor is not None:
+        logger.info("3D View: update_volume called. Configuring for 2D Slice Actor Test.")
+        # Cleanup all actors
+        if hasattr(self, 'test_sphere_actor') and self.test_sphere_actor:
             self.ren.RemoveActor(self.test_sphere_actor)
             self.test_sphere_actor = None
-        if hasattr(self, 'test_slice_actor') and self.test_slice_actor is not None:
+            logger.info("3D View: Removed test_sphere_actor.")
+        if hasattr(self, 'test_slice_actor') and self.test_slice_actor:
             self.ren.RemoveActor(self.test_slice_actor)
             self.test_slice_actor = None
-
-        if self.volume_actor is not None: # Main 3D volume actor
+            logger.info("3D View: Removed previous test_slice_actor.")
+        if self.volume_actor is not None:
             self.ren.RemoveVolume(self.volume_actor)
             self.volume_actor = None
-        if self.tumor_actor is not None: # Existing tumor surface
+            logger.info("3D View: Removed main volume_actor.")
+        if self.tumor_actor is not None:
             self.ren.RemoveActor(self.tumor_actor)
             self.tumor_actor = None
+            logger.info("3D View: Removed tumor_actor.")
         self._clear_oar_actors()
         self._clear_dose_isosurfaces()
         self._clear_beam_visualization()
-        # --- END OF EXPLICIT CLEARING FOR SPHERE TEST ---
+        logger.info("3D View: All actors cleared for 2D slice test setup.")
 
         self.image_properties_for_viz = image_properties
 
-        # Bypassing data checks for sphere test, assuming it can always be added
-        # if volume_data_full_zyx is None or image_properties is None:
-        #     logger.info("No volume data or properties to display in 3D view.")
-        #     if self.vtkWidget.GetRenderWindow():
-        #         self.ren.ResetCamera()
-        #         self.vtkWidget.GetRenderWindow().Render()
-        #     return
+        if volume_data_full_zyx is None or image_properties is None:
+            logger.info("No volume data or properties to display in 3D view (required for 2D slice).")
+            if self.vtkWidget.GetRenderWindow():
+                self.ren.ResetCamera()
+                self.vtkWidget.GetRenderWindow().Render()
+            return
 
-        # --- START OF VTK SPHERE TEST ---
-        logger.info("3D View Test: Attempting to display a simple vtkSphereSource.")
-        sphereSource = vtkSphereSource()
-        sphereSource.SetCenter(0.0, 0.0, 0.0)
-        sphereSource.SetRadius(50.0)
-        sphereSource.Update()
+        # Create the 3D vtkImageData (clipped) as it's used by the 2D slice actor
+        logger.info(f"3D View: Original full volume data range: {volume_data_full_zyx.min():.2f} to {volume_data_full_zyx.max():.2f}")
+        min_hu_display = -1024.0
+        max_hu_display = 3000.0
+        volume_data_clipped_zyx = np.clip(volume_data_full_zyx, min_hu_display, max_hu_display)
+        logger.info(f"3D View: Clipped volume data range for display: {volume_data_clipped_zyx.min():.2f} to {volume_data_clipped_zyx.max():.2f}")
 
-        mapper = vtkPolyDataMapper()
-        mapper.SetInputConnection(sphereSource.GetOutputPort())
-
-        self.test_sphere_actor = vtkActor()
-        self.test_sphere_actor.SetMapper(mapper)
-        self.test_sphere_actor.GetProperty().SetColor(1.0, 0.0, 0.0) # Red
-
-        self.ren.AddActor(self.test_sphere_actor)
-        logger.info("3D View Test: Added vtkSphereSource actor.")
-
+        vtk_volume_image = self._numpy_to_vtkimage(volume_data_clipped_zyx.astype(np.float32), image_properties)
         try:
-            bounds = self.test_sphere_actor.GetBounds()
-            logger.info(f"3D View Test: Sphere actor bounds: {bounds}")
-        except Exception as e_bounds:
-            logger.warning(f"3D View Test: Could not get sphere_actor bounds: {e_bounds}")
-        # --- END OF VTK SPHERE TEST ---
+            scalar_range = vtk_volume_image.GetScalarRange()
+            logger.info(f"3D View: VTK Volume Image Scalar Range: {scalar_range[0]:.2f} to {scalar_range[1]:.2f}")
+        except Exception as e_sr:
+            logger.warning(f"3D View: Could not get scalar range from vtk_volume_image: {e_sr}")
 
-        # The following original volume rendering code is effectively bypassed
-        # because self.ren.AddVolume(self.volume_actor) will not be called.
-        # Properties are set in case it's re-enabled later.
-        if volume_data_full_zyx is not None and image_properties is not None:
-            logger.info(f"3D View: Original full volume data range (for reference): {volume_data_full_zyx.min():.2f} to {volume_data_full_zyx.max():.2f}")
-            min_hu_display = -1024.0
-            max_hu_display = 3000.0
-            volume_data_clipped_zyx = np.clip(volume_data_full_zyx, min_hu_display, max_hu_display)
-            logger.info(f"3D View: Clipped volume data range (for reference): {volume_data_clipped_zyx.min():.2f} to {volume_data_clipped_zyx.max():.2f}")
+        # --- START OF VTK IMAGE PLANE (2D Slice) DISPLAY ---
+        logger.info("3D View: Attempting to display a central 2D CT slice as vtkImageActor.")
+        if vtk_volume_image is not None and vtk_volume_image.GetNumberOfPoints() > 0:
+            dims = vtk_volume_image.GetDimensions()
+            central_slice_idx = dims[2] // 2
 
-            vtk_volume_image = self._numpy_to_vtkimage(volume_data_clipped_zyx.astype(np.float32), image_properties)
+            self.test_slice_actor = vtkImageActor()
+            self.test_slice_actor.SetInputData(vtk_volume_image)
+
+            self.test_slice_actor.SetDisplayExtent(0, dims[0]-1, 0, dims[1]-1, central_slice_idx, central_slice_idx)
+
+            window = 400
+            level = 40
+            self.test_slice_actor.GetProperty().SetColorWindow(window)
+            self.test_slice_actor.GetProperty().SetColorLevel(level)
+            self.test_slice_actor.GetProperty().SetInterpolationTypeToLinear()
+
+            self.ren.AddActor(self.test_slice_actor)
+            logger.info(f"3D View: Added vtkImageActor for slice index {central_slice_idx}. Window={window}, Level={level}")
             try:
-                scalar_range = vtk_volume_image.GetScalarRange()
-                logger.info(f"3D View: VTK Volume Image Scalar Range (for reference): {scalar_range[0]:.2f} to {scalar_range[1]:.2f}")
-            except Exception as e_sr:
-                logger.warning(f"3D View: Could not get scalar range from vtk_volume_image (for reference): {e_sr}")
+                slice_actor_bounds = self.test_slice_actor.GetBounds()
+                logger.info(f"3D View: Slice actor bounds: {slice_actor_bounds}")
+            except Exception as e_sab:
+                logger.warning(f"3D View: Could not get slice_actor bounds: {e_sab}")
+        else:
+            logger.warning("3D View: Main 3D vtk_volume_image not available or empty, cannot display 2D slice actor.")
+        # --- END OF VTK IMAGE PLANE (2D Slice) DISPLAY ---
 
+        # The following block for 3D volume actor properties is kept for reference, but actor is NOT added to renderer.
+        if vtk_volume_image: # Check if vtk_volume_image was successfully created
             color_func = vtkColorTransferFunction(); opacity_func = vtkPiecewiseFunction()
-
-            logger.info("3D View: Applying AGGRESSIVE simplified color transfer function (for bypassed 3D volume).")
+            logger.info("3D View: Setting AGGRESSIVE simplified color transfer function (for bypassed 3D volume).")
             color_func.AddRGBPoint(min_hu_display, 0.2, 0.2, 0.2)
             color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9)
-
-            logger.info("3D View: Applying AGGRESSIVE simplified opacity transfer function for basic visibility test (for bypassed 3D volume).")
+            logger.info("3D View: Setting AGGRESSIVE simplified opacity transfer function (for bypassed 3D volume).")
             opacity_func.AddPoint(min_hu_display, 0.0)
             opacity_func.AddPoint(-300.0, 0.0)
             opacity_func.AddPoint(-299.0, 0.25)
@@ -208,28 +213,14 @@ class DicomViewer3DWidget(QWidget):
                  self.volume_property = vtkVolumeProperty()
             self.volume_property.SetColor(color_func); self.volume_property.SetScalarOpacity(opacity_func)
             self.volume_property.SetInterpolationTypeToLinear();
-            logger.info("3D View: Turning OFF shading for basic visibility test (for bypassed 3D volume).")
+            logger.info("3D View: Setting ShadeOff for basic visibility test (for bypassed 3D volume).")
             self.volume_property.ShadeOff()
             self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
-
-            # Ensure 3D volume_actor is correctly managed if it exists from a previous call
-            if self.volume_actor is None:
-                volume_mapper = vtkSmartVolumeMapper()
-                if vtk_volume_image: volume_mapper.SetInputData(vtk_volume_image)
-                self.volume_actor = vtkVolume()
-                self.volume_actor.SetMapper(volume_mapper)
-                self.volume_actor.SetProperty(self.volume_property)
-                logger.info("3D View: self.volume_actor (3D) created but NOT added to renderer.")
-            else:
-                if self.volume_actor.GetMapper(): self.volume_actor.GetMapper().SetInputData(vtk_volume_image)
-                self.volume_actor.SetProperty(self.volume_property)
-                logger.info("3D View: self.volume_actor (3D) properties updated but NOT added to renderer.")
-            # self.ren.AddVolume(self.volume_actor) # << THIS LINE IS INTENTIONALLY BYPASSED
-
-        # Tumor and OAR actors are not added for this sphere test to keep it simple
-        # if tumor_mask_full_zyx is not None and np.any(tumor_mask_full_zyx): ...
-        # if oar_masks_full_zyx: ...
+            logger.info("3D View: Main 3D volume rendering properties set, but actor will NOT be added to renderer for this test.")
         
+        # Tumor, OARs, etc., are not added for this specific 2D slice test.
+        # Their respective clear methods have already been called.
+
         if self.vtkWidget.GetRenderWindow():
             self.ren.ResetCamera()
             self.ren.ResetCameraClippingRange()
@@ -242,7 +233,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Sphere Test).")
+        logger.info("3D View updated (2D Slice Actor Test).")
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
