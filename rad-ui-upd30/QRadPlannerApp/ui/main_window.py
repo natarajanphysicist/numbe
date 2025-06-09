@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.data_manager = data_manager
         
-        self.setWindowTitle("QRadPlanner - Radiotherapy Planning Tool")
+        self.setWindowTitle("MG Health Tech - QRadPlanner - Radiotherapy Planning Tool")
         self.setGeometry(100, 100, 1800, 1000)  
 
         self._create_menu_bar()
