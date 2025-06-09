@@ -23,6 +23,7 @@ from vtkmodules.vtkFiltersGeneral import vtkDiscreteMarchingCubes
 from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylinderSource, vtkSphereSource
 from vtkmodules.vtkCommonMath import vtkMatrix4x4
 from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
+from vtkmodules.vtkRenderingVolume import vtkFixedPointVolumeRayCastMapper
 
 
 from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkSmartVolumeMapper 
@@ -123,7 +124,7 @@ class DicomViewer3DWidget(QWidget):
                       tumor_mask_full_zyx: Optional[np.ndarray] = None,   # (s,r,c)
                       oar_masks_full_zyx: Optional[Dict[str, np.ndarray]] = None): # (s,r,c)
         
-        logger.info("3D View: update_volume called. Preparing for FULL 3D VOLUME Rendering Test.")
+        logger.info("3D View: update_volume called. Preparing for Full 3D Volume with MIP & FixedPointMapper.")
         # Cleanup all actors
         if hasattr(self, 'test_sphere_actor') and self.test_sphere_actor:
             self.ren.RemoveActor(self.test_sphere_actor)
@@ -134,7 +135,7 @@ class DicomViewer3DWidget(QWidget):
             self.test_slice_actor = None
             logger.info("3D View: Removed previous test_slice_actor.")
         if self.volume_actor is not None:
-            self.ren.RemoveVolume(self.volume_actor) # Use RemoveVolume for vtkVolume
+            self.ren.RemoveVolume(self.volume_actor)
             self.volume_actor = None
             logger.info("3D View: Removed main volume_actor.")
         if self.tumor_actor is not None:
@@ -155,7 +156,6 @@ class DicomViewer3DWidget(QWidget):
                 self.vtkWidget.GetRenderWindow().Render()
             return
 
-        # Create the 3D vtkImageData (clipped)
         logger.info(f"3D View: Original full volume data range: {volume_data_full_zyx.min():.2f} to {volume_data_full_zyx.max():.2f}")
         min_hu_display = -1024.0
         max_hu_display = 3000.0
@@ -175,33 +175,55 @@ class DicomViewer3DWidget(QWidget):
             color_func = vtkColorTransferFunction()
             opacity_func = vtkPiecewiseFunction()
 
-            logger.info("3D View: Applying AGGRESSIVE simplified color transfer function.")
-            color_func.AddRGBPoint(min_hu_display, 0.2, 0.2, 0.2)
-            color_func.AddRGBPoint(max_hu_display, 0.9, 0.9, 0.9)
+            logger.info("3D View: Applying further refined CT color transfer function (grayscale).")
+            color_func.RemoveAllPoints()
+            color_func.AddRGBPoint(min_hu_display, 0.0, 0.0, 0.0)    # Black
+            color_func.AddRGBPoint(10.0, 0.1, 0.1, 0.1)             # Dark Gray for CSF-like
+            color_func.AddRGBPoint(20.0, 0.3, 0.3, 0.3)             # Gray for WM start
+            color_func.AddRGBPoint(40.0, 0.6, 0.6, 0.6)             # Mid-gray for GM
+            color_func.AddRGBPoint(70.0, 0.5, 0.5, 0.5)             # Slightly darker gray
+            color_func.AddRGBPoint(100.0, 0.4, 0.4, 0.4)            # Fading soft tissue
+            color_func.AddRGBPoint(250.0, 0.75, 0.75, 0.75)         # Bone start
+            color_func.AddRGBPoint(1000.0, 0.9, 0.9, 0.9)           # Brighter Bone
+            color_func.AddRGBPoint(max_hu_display, 1.0, 1.0, 1.0)    # White
 
-            logger.info("3D View: Applying AGGRESSIVE simplified opacity transfer function.")
+            logger.info("3D View: Applying further refined CT opacity transfer function for brain.")
+            opacity_func.RemoveAllPoints()
             opacity_func.AddPoint(min_hu_display, 0.0)
-            opacity_func.AddPoint(-300.0, 0.0)
-            opacity_func.AddPoint(-299.0, 0.25)
-            opacity_func.AddPoint(max_hu_display, 0.25)
+            opacity_func.AddPoint(-500.0, 0.0)
+            opacity_func.AddPoint(10.0, 0.0)
+            opacity_func.AddPoint(20.0, 0.05)
+            opacity_func.AddPoint(40.0, 0.15)
+            opacity_func.AddPoint(70.0, 0.1)
+            opacity_func.AddPoint(100.0, 0.05)
+            opacity_func.AddPoint(200.0, 0.0)
+            opacity_func.AddPoint(250.0, 0.3)
+            opacity_func.AddPoint(1000.0, 0.7)
+            opacity_func.AddPoint(max_hu_display, 0.85)
 
             if not hasattr(self, 'volume_property') or self.volume_property is None:
                  self.volume_property = vtkVolumeProperty()
             self.volume_property.SetColor(color_func)
             self.volume_property.SetScalarOpacity(opacity_func)
             self.volume_property.SetInterpolationTypeToLinear()
-            logger.info("3D View: Turning ON shading.") # Changed from OFF
-            self.volume_property.ShadeOn() # Ensure shading is ON
+            logger.info("3D View: Turning ON shading for 3D volume.")
+            self.volume_property.ShadeOn()
             self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
 
-            volume_mapper = vtkSmartVolumeMapper()
+            logger.info("3D View: Using vtkFixedPointVolumeRayCastMapper.")
+            volume_mapper = vtkFixedPointVolumeRayCastMapper()
+            volume_mapper.SetSampleDistance(0.5)
+            logger.info(f"3D View: vtkFixedPointVolumeRayCastMapper SampleDistance set to {volume_mapper.GetSampleDistance()}")
+            volume_mapper.SetBlendModeToMaximumIntensity()
+            logger.info("3D View: Set BlendModeToMaximumIntensity for volume_mapper.")
+
             volume_mapper.SetInputData(vtk_volume_image)
 
             self.volume_actor = vtkVolume()
             self.volume_actor.SetMapper(volume_mapper)
             self.volume_actor.SetProperty(self.volume_property)
 
-            self.ren.AddVolume(self.volume_actor) # THIS LINE IS NOW ACTIVE
+            self.ren.AddVolume(self.volume_actor)
             logger.info("3D View: Main 3D vtkVolume actor configured and added to renderer.")
             try:
                 bounds = self.volume_actor.GetBounds()
@@ -212,7 +234,6 @@ class DicomViewer3DWidget(QWidget):
             logger.warning("3D View: Main 3D vtk_volume_image not available or empty, cannot display full 3D volume.")
         # --- END OF FULL 3D VOLUME RENDERING ---
 
-        # Add other actors (tumor, OARs) as before
         if tumor_mask_full_zyx is not None and np.any(tumor_mask_full_zyx):
             self.tumor_actor = self._create_surface_actor_from_mask(
                 tumor_mask_full_zyx, image_properties, color=(1.0, 0.0, 0.0), opacity=0.4
@@ -244,7 +265,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Full 3D Volume Test).")
+        logger.info("3D View updated (Full 3D Volume with MIP, FixedPointMapper).")
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
