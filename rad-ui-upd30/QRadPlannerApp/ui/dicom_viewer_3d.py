@@ -23,9 +23,9 @@ from vtkmodules.vtkFiltersGeneral import vtkDiscreteMarchingCubes
 from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylinderSource, vtkSphereSource
 from vtkmodules.vtkCommonMath import vtkMatrix4x4
 from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
-# from vtkmodules.vtkRenderingVolume import vtkFixedPointVolumeRayCastMapper # Commented out
+# from vtkmodules.vtkRenderingVolume import vtkFixedPointVolumeRayCastMapper # CRITICALLY ensure this is commented or removed
 from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkSmartVolumeMapper # Ensure vtkSmartVolumeMapper is imported
-# from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkGPUVolumeRayCastMapper # Commented out
+# from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkGPUVolumeRayCastMapper # CRITICALLY ensure this is commented or removed
 
 
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
@@ -122,7 +122,7 @@ class DicomViewer3DWidget(QWidget):
                       tumor_mask_full_zyx: Optional[np.ndarray] = None,   # (s,r,c)
                       oar_masks_full_zyx: Optional[Dict[str, np.ndarray]] = None): # (s,r,c)
         
-        logger.info("3D View: update_volume called. Configuring for Full 3D Volume with SmartMapper.")
+        logger.info("3D View: update_volume called. Preparing for Full 3D Volume with SmartMapper[TextureRequested].")
         # Cleanup all actors
         if hasattr(self, 'test_sphere_actor') and self.test_sphere_actor:
             self.ren.RemoveActor(self.test_sphere_actor)
@@ -185,19 +185,16 @@ class DicomViewer3DWidget(QWidget):
             color_func.AddRGBPoint(1000.0, 0.9, 0.9, 0.9)           # Brighter Bone
             color_func.AddRGBPoint(max_hu_display, 1.0, 1.0, 1.0)    # White
 
-            logger.info("3D View: Applying further refined CT opacity transfer function for brain.")
+            logger.info("3D View: Applying 'more solid' CT opacity transfer function.")
             opacity_func.RemoveAllPoints()
             opacity_func.AddPoint(min_hu_display, 0.0)
-            opacity_func.AddPoint(-500.0, 0.0)
-            opacity_func.AddPoint(10.0, 0.0)
-            opacity_func.AddPoint(20.0, 0.05)
-            opacity_func.AddPoint(40.0, 0.15)
-            opacity_func.AddPoint(70.0, 0.1)
-            opacity_func.AddPoint(100.0, 0.05)
-            opacity_func.AddPoint(200.0, 0.0)
-            opacity_func.AddPoint(250.0, 0.3)
-            opacity_func.AddPoint(1000.0, 0.7)
-            opacity_func.AddPoint(max_hu_display, 0.85)
+            opacity_func.AddPoint(0.0, 0.05)
+            opacity_func.AddPoint(20.0, 0.15)
+            opacity_func.AddPoint(70.0, 0.25)
+            opacity_func.AddPoint(150.0, 0.1)
+            opacity_func.AddPoint(250.0, 0.4)
+            opacity_func.AddPoint(1000.0, 0.8)
+            opacity_func.AddPoint(max_hu_display, 0.9)
 
             if not hasattr(self, 'volume_property') or self.volume_property is None:
                  self.volume_property = vtkVolumeProperty()
@@ -208,9 +205,9 @@ class DicomViewer3DWidget(QWidget):
             self.volume_property.ShadeOn()
             self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
 
-            logger.info("3D View: Using ONLY vtkSmartVolumeMapper.")
+            logger.info("3D View: Using ONLY vtkSmartVolumeMapper and requesting Texture render mode.")
             volume_mapper = vtkSmartVolumeMapper()
-            # No SetSampleDistance or SetBlendModeTo... for vtkSmartVolumeMapper
+            volume_mapper.SetRequestedRenderModeToTexture()
 
             volume_mapper.SetInputData(vtk_volume_image)
 
@@ -260,7 +257,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Full 3D Volume with ONLY SmartMapper and refined TFs).")
+        logger.info("3D View updated (Full 3D Volume with SmartMapper[TextureRequested] and 'more solid' TFs).")
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
