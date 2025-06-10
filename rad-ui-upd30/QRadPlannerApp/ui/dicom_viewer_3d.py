@@ -23,8 +23,9 @@ from vtkmodules.vtkFiltersGeneral import vtkDiscreteMarchingCubes
 from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylinderSource, vtkSphereSource
 from vtkmodules.vtkCommonMath import vtkMatrix4x4
 from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
-from vtkmodules.vtkRenderingVolume import vtkFixedPointVolumeRayCastMapper
-# from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkGPUVolumeRayCastMapper, vtkSmartVolumeMapper # vtkGPUVolumeRayCastMapper removed
+# from vtkmodules.vtkRenderingVolume import vtkFixedPointVolumeRayCastMapper # Commented out
+from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkSmartVolumeMapper # Ensure vtkSmartVolumeMapper is imported
+# from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkGPUVolumeRayCastMapper # Commented out
 
 
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
@@ -58,7 +59,7 @@ class DicomViewer3DWidget(QWidget):
         self.test_sphere_actor: Optional[vtkActor] = None
 
 
-        self.vtkWidget.Initialize() # Initialize QVTKRenderWindowInteractor
+        self.vtkWidget.Initialize()
         logger.info("DicomViewer3DWidget initialized.")
 
         logger.info("3D View: Setting vtkInteractorStyleTrackballCamera.")
@@ -121,7 +122,7 @@ class DicomViewer3DWidget(QWidget):
                       tumor_mask_full_zyx: Optional[np.ndarray] = None,   # (s,r,c)
                       oar_masks_full_zyx: Optional[Dict[str, np.ndarray]] = None): # (s,r,c)
         
-        logger.info("3D View: update_volume called. Configuring for Full 3D Volume with FixedPointMapper, Composite, SampleDistance=0.5.")
+        logger.info("3D View: update_volume called. Configuring for Full 3D Volume with SmartMapper.")
         # Cleanup all actors
         if hasattr(self, 'test_sphere_actor') and self.test_sphere_actor:
             self.ren.RemoveActor(self.test_sphere_actor)
@@ -207,12 +208,9 @@ class DicomViewer3DWidget(QWidget):
             self.volume_property.ShadeOn()
             self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
 
-            logger.info("3D View: Reverting to vtkFixedPointVolumeRayCastMapper due to GPU mapper import issue.")
-            volume_mapper = vtkFixedPointVolumeRayCastMapper()
-            volume_mapper.SetSampleDistance(0.5)
-            logger.info(f"3D View: vtkFixedPointVolumeRayCastMapper SampleDistance set to {volume_mapper.GetSampleDistance()}")
-            logger.info("3D View: Setting BlendModeToComposite for vtkFixedPointVolumeRayCastMapper.")
-            volume_mapper.SetBlendModeToComposite()
+            logger.info("3D View: Using ONLY vtkSmartVolumeMapper.")
+            volume_mapper = vtkSmartVolumeMapper()
+            # No SetSampleDistance or SetBlendModeTo... for vtkSmartVolumeMapper
 
             volume_mapper.SetInputData(vtk_volume_image)
 
@@ -262,7 +260,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Full 3D Volume with FixedPointMapper, Composite, SampleDistance=0.5).")
+        logger.info("3D View updated (Full 3D Volume with ONLY SmartMapper and refined TFs).")
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
@@ -460,3 +458,5 @@ if __name__ == '__main__':
     viewer3d.resize(800, 600)
     viewer3d.show()
     sys.exit(app.exec_())
+
+[end of rad-ui-upd30/QRadPlannerApp/ui/dicom_viewer_3d.py]
