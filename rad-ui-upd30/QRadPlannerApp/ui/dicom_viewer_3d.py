@@ -24,7 +24,7 @@ from vtkmodules.vtkFiltersSources import vtkLineSource, vtkConeSource, vtkCylind
 from vtkmodules.vtkCommonMath import vtkMatrix4x4
 from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
 from vtkmodules.vtkRenderingVolume import vtkFixedPointVolumeRayCastMapper
-from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkGPUVolumeRayCastMapper, vtkSmartVolumeMapper
+# from vtkmodules.vtkRenderingVolumeOpenGL2 import vtkGPUVolumeRayCastMapper, vtkSmartVolumeMapper # vtkGPUVolumeRayCastMapper removed
 
 
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
@@ -66,8 +66,6 @@ class DicomViewer3DWidget(QWidget):
         interactor = self.vtkWidget.GetRenderWindow().GetInteractor()
         if interactor:
             interactor.SetInteractorStyle(style)
-            # logger.info("3D View: Starting QVTKRenderWindowInteractor event loop via self.vtkWidget.Start().")
-            # self.vtkWidget.Start() # This blocks if called here in a typical Qt app structure. Usually called by app.exec_()
         else:
             logger.error("3D View: Failed to get interactor to set style.")
 
@@ -123,7 +121,7 @@ class DicomViewer3DWidget(QWidget):
                       tumor_mask_full_zyx: Optional[np.ndarray] = None,   # (s,r,c)
                       oar_masks_full_zyx: Optional[Dict[str, np.ndarray]] = None): # (s,r,c)
         
-        logger.info("3D View: update_volume called. Configuring for Full 3D Volume with GPU RayCastMapper.")
+        logger.info("3D View: update_volume called. Configuring for Full 3D Volume with FixedPointMapper, Composite, SampleDistance=0.5.")
         # Cleanup all actors
         if hasattr(self, 'test_sphere_actor') and self.test_sphere_actor:
             self.ren.RemoveActor(self.test_sphere_actor)
@@ -209,22 +207,12 @@ class DicomViewer3DWidget(QWidget):
             self.volume_property.ShadeOn()
             self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
 
-            logger.info("3D View: Using vtkGPUVolumeRayCastMapper.")
-            volume_mapper = vtkGPUVolumeRayCastMapper()
-            if not volume_mapper.IsA("vtkGPUVolumeRayCastMapper"):
-                logger.error("3D View: Failed to create vtkGPUVolumeRayCastMapper. Falling back to FixedPoint.")
-                volume_mapper = vtkFixedPointVolumeRayCastMapper()
-                logger.info("3D View: Using vtkFixedPointVolumeRayCastMapper as fallback.")
-                volume_mapper.SetSampleDistance(0.5) # Default for FixedPoint if GPU fails
-                logger.info(f"3D View: Fallback vtkFixedPointVolumeRayCastMapper SampleDistance set to {volume_mapper.GetSampleDistance()}")
-            else:
-                 # Optional: Configure vtkGPUVolumeRayCastMapper properties if needed
-                 # volume_mapper.SetAutoAdjustSampleDistances(True/False)
-                 pass # Use defaults for now
-
-            # Note: SampleDistance is not typically set for vtkGPUVolumeRayCastMapper as it auto-adjusts.
-            # If we were using FixedPoint, the SetSampleDistance(0.25) would be here.
-            # The BlendModeToMaximumIntensity is also removed as per new objective.
+            logger.info("3D View: Reverting to vtkFixedPointVolumeRayCastMapper due to GPU mapper import issue.")
+            volume_mapper = vtkFixedPointVolumeRayCastMapper()
+            volume_mapper.SetSampleDistance(0.5)
+            logger.info(f"3D View: vtkFixedPointVolumeRayCastMapper SampleDistance set to {volume_mapper.GetSampleDistance()}")
+            logger.info("3D View: Setting BlendModeToComposite for vtkFixedPointVolumeRayCastMapper.")
+            volume_mapper.SetBlendModeToComposite()
 
             volume_mapper.SetInputData(vtk_volume_image)
 
@@ -274,7 +262,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Full 3D Volume with GPU RayCastMapper).")
+        logger.info("3D View updated (Full 3D Volume with FixedPointMapper, Composite, SampleDistance=0.5).")
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
