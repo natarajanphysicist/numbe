@@ -205,9 +205,9 @@ class DicomViewer3DWidget(QWidget):
             self.volume_property.ShadeOn()
             self.volume_property.SetAmbient(0.3); self.volume_property.SetDiffuse(0.7); self.volume_property.SetSpecular(0.2); self.volume_property.SetSpecularPower(10.0)
 
-            logger.info("3D View: Using ONLY vtkSmartVolumeMapper and requesting Texture render mode.")
+            logger.info("3D View: Using ONLY vtkSmartVolumeMapper (default render mode).")
             volume_mapper = vtkSmartVolumeMapper()
-            volume_mapper.SetRequestedRenderModeToTexture()
+            # volume_mapper.SetRequestedRenderModeToTexture() # THIS LINE CAUSES THE AttributeError - REMOVED
 
             volume_mapper.SetInputData(vtk_volume_image)
 
@@ -257,7 +257,7 @@ class DicomViewer3DWidget(QWidget):
             except Exception as e_cam:
                 logger.warning(f"3D View: Could not get camera parameters: {e_cam}")
             self.vtkWidget.GetRenderWindow().Render()
-        logger.info("3D View updated (Full 3D Volume with SmartMapper[TextureRequested] and 'more solid' TFs).")
+        logger.info("3D View updated (Full 3D Volume with SmartMapper [Default Mode] and 'more solid' TFs).")
 
     def _clear_oar_actors(self):
         logger.debug(f"Clearing {len(self.oar_actors)} OAR actors.")
