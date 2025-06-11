@@ -91,7 +91,7 @@ class TumorDetector:
             # Let's try a threshold that might correspond to denser soft tissue.
             # If 0 HU is normalized to around 0.2-0.3 (depending on actual min/max of original volume),
             # then a threshold like 0.3 might be a starting point to exclude very low densities.
-            threshold_for_watershed_constraint = 0.3 # Tune this value
+            threshold_for_watershed_constraint = 0.35 # Tune this value
             watershed_segmentation_mask = volume_blurred > threshold_for_watershed_constraint
             logger.info(f"detect_tumors: Watershed will be constrained to mask where blurred normalized value > {threshold_for_watershed_constraint}. Mask sum: {np.sum(watershed_segmentation_mask)}")
 
@@ -106,7 +106,7 @@ class TumorDetector:
             # `labels_ws` now contains the segmented regions. Regions corresponding to markers will have their respective label.
             # Background (where no basin formed from a marker) will be 0.
             final_tumor_mask = np.zeros_like(volume_prepared_for_peaks, dtype=bool)
-            min_tumor_area = 3000 # Example minimum size in voxels
+            min_tumor_area = 75000 # Example minimum size in voxels
             found_regions_after_filter = 0
 
             # Iterate through unique labels found by watershed, skipping 0 (background)
